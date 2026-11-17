@@ -3,15 +3,15 @@ import type { Order, OrderEvent, OrderState } from "./types.ts";
 export interface PublicOrder {
   id: string;
   state: OrderState;
-  headline: string;
-  detail: string;
   category: Order["category"];
+  countryCode: string;
+  currency: string;
   product: string;
   recipient: string;
   customerName: string | null;
-  amountNgn: number;
+  amountLocal: number;
   amountSats: number;
-  rateNgnPerBtc: number;
+  ratePerBtc: number;
   invoice: string | null;
   invoiceExpiresAt: number;
   token: string | null;
@@ -22,38 +22,21 @@ export interface PublicOrder {
   timeline: { at: number; state: OrderState; note: string }[];
 }
 
-const COPY: Record<OrderState, { headline: string; detail: string }> = {
-  awaiting_payment: { headline: "Waiting for your payment", detail: "Pay the invoice. Your sats get locked, not sent." },
-  locked: { headline: "Payment locked, not sent", detail: "Your sats are held safely while we buy it for you." },
-  vending: { headline: "Buying it for you…", detail: "Waiting for the provider to confirm delivery." },
-  delivered: { headline: "Delivered!", detail: "Completing your payment now that delivery is confirmed." },
-  completed: { headline: "Done: delivered, then paid", detail: "Your payment completed only after delivery was confirmed." },
-  released: {
-    headline: "It didn't go through. You were not charged.",
-    detail: "We released the lock on your payment, so your sats never left your wallet.",
-  },
-  expired: { headline: "Invoice expired", detail: "Nothing was paid and nothing was charged." },
-};
-
-/** Safe, PII-minimised projection. Never exposes the preimage, request id, or raw phone/meter number. */
+/** Safe, PII-minimised projection. Never exposes the preimage, request id, provider ref, or raw phone/meter number. */
 export function toPublicOrder(order: Order, events: OrderEvent[]): PublicOrder {
   const showProduct = order.state === "completed" || order.reconState === "delivered_after_release";
-  const copy = COPY[order.state];
   return {
     id: order.id,
     state: order.state,
-    headline: order.reconState === "delivered_after_release" ? "Delivered after all, and it's free" : copy.headline,
-    detail:
-      order.reconState === "delivered_after_release"
-        ? "The provider confirmed late, after we had already released your payment. Enjoy it on us."
-        : copy.detail,
     category: order.category,
+    countryCode: order.countryCode,
+    currency: order.currency,
     product: order.productLabel,
     recipient: order.recipientMasked,
     customerName: order.customerName,
-    amountNgn: order.amountNgn,
+    amountLocal: order.amountLocal,
     amountSats: order.amountSats,
-    rateNgnPerBtc: order.rateNgnPerBtc,
+    ratePerBtc: order.ratePerBtc,
     invoice: order.state === "awaiting_payment" ? order.invoice : null,
     invoiceExpiresAt: order.invoiceExpiresAt,
     token: showProduct ? order.token : null,

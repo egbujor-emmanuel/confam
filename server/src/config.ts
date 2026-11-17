@@ -29,6 +29,11 @@ const EnvSchema = z
     VTPASS_PUBLIC_KEY: z.string().min(1).optional(),
     VTPASS_SECRET_KEY: z.string().min(1).optional(),
 
+    // Reloadly airtime/data across Africa (sandbox by default; Test mode credentials).
+    RELOADLY_BASE_URL: z.url().default("https://topups-sandbox.reloadly.com"),
+    RELOADLY_CLIENT_ID: z.string().min(1).optional(),
+    RELOADLY_CLIENT_SECRET: z.string().min(1).optional(),
+
     // Signs delivery receipts (Nostr event signatures).
     NOSTR_SECRET_KEY_HEX: z.string().regex(/^[0-9a-fA-F]{64}$/),
 
@@ -37,6 +42,8 @@ const EnvSchema = z
     VEND_DEADLINE_SEC: z.coerce.number().int().min(15).max(900).default(90),
     MIN_ORDER_NGN: z.coerce.number().int().min(1).default(50),
     MAX_ORDER_NGN: z.coerce.number().int().min(1).default(50000),
+    /** Per-order cap in any currency, expressed in sats. */
+    MAX_ORDER_SATS: z.coerce.number().int().min(100).default(100000),
     SERVICE_FEE_BPS: z.coerce.number().int().min(0).max(1000).default(0),
 
     // Demo helpers.
@@ -63,6 +70,8 @@ const EnvSchema = z
 export type Config = z.infer<typeof EnvSchema> & {
   vtpassConfigured: boolean;
   vtpassIsSandbox: boolean;
+  reloadlyConfigured: boolean;
+  reloadlyIsSandbox: boolean;
   corsOrigins: string[];
 };
 
@@ -79,6 +88,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...cfg,
     vtpassConfigured: Boolean(cfg.VTPASS_API_KEY && cfg.VTPASS_PUBLIC_KEY && cfg.VTPASS_SECRET_KEY),
     vtpassIsSandbox: new URL(cfg.VTPASS_BASE_URL).hostname.startsWith("sandbox."),
+    reloadlyConfigured: Boolean(cfg.RELOADLY_CLIENT_ID && cfg.RELOADLY_CLIENT_SECRET),
+    reloadlyIsSandbox: new URL(cfg.RELOADLY_BASE_URL).hostname.includes("sandbox"),
     corsOrigins: cfg.CORS_ORIGINS.split(",")
       .map((s) => s.trim())
       .filter(Boolean),

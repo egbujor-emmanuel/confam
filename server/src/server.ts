@@ -5,7 +5,12 @@ import { OrderEngine } from "./orders/engine.ts";
 import { OrderService } from "./orders/service.ts";
 import { OrderStore } from "./orders/store.ts";
 import { RateService } from "./pricing/rates.ts";
+import { ReloadlyProvider } from "./providers/reloadly.ts";
+import type { ProviderRegistry } from "./providers/types.ts";
+import { VtpassProvider } from "./providers/vtpass.ts";
 import { ReceiptSigner } from "./receipts/sign.ts";
+import { ReloadlyCatalog } from "./reloadly/catalog.ts";
+import { ReloadlyClient } from "./reloadly/client.ts";
 import { Catalog } from "./vtpass/catalog.ts";
 import { VtpassClient } from "./vtpass/client.ts";
 
@@ -13,6 +18,7 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   const store = new OrderStore(cfg.DB_PATH);
   const ln = createHoldInvoiceProvider(cfg);
+
   const vtpass = cfg.vtpassConfigured
     ? new VtpassClient({
         baseUrl: cfg.VTPASS_BASE_URL,
@@ -21,19 +27,34 @@ async function main(): Promise<void> {
         secretKey: cfg.VTPASS_SECRET_KEY as string,
       })
     : null;
+  const reloadlyClient = cfg.reloadlyConfigured
+    ? new ReloadlyClient({
+        baseUrl: cfg.RELOADLY_BASE_URL,
+        clientId: cfg.RELOADLY_CLIENT_ID as string,
+        clientSecret: cfg.RELOADLY_CLIENT_SECRET as string,
+      })
+    : null;
+
+  const providers: ProviderRegistry = {};
+  if (vtpass) providers.vtpass = new VtpassProvider(vtpass);
+  if (reloadlyClient) providers.reloadly = new ReloadlyProvider(reloadlyClient);
+
   const catalog = new Catalog(vtpass);
+  const reloadly = reloadlyClient ? new ReloadlyCatalog(reloadlyClient) : null;
   const rates = new RateService();
   const signer = new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX);
   const orders = new OrderService({
     store,
     ln,
     vtpass,
-    catalog,
+    vtpassCatalog: catalog,
+    reloadly,
     rates,
-    sandbox: cfg.vtpassIsSandbox,
+    vtpassSandbox: cfg.vtpassIsSandbox,
     limits: {
       minNgn: cfg.MIN_ORDER_NGN,
       maxNgn: cfg.MAX_ORDER_NGN,
+      maxSats: cfg.MAX_ORDER_SATS,
       feeBps: cfg.SERVICE_FEE_BPS,
       invoiceExpirySec: cfg.INVOICE_EXPIRY_SEC,
     },
@@ -42,13 +63,13 @@ async function main(): Promise<void> {
   // The engine logs through Fastify's (redacting) logger, so it is created right after the app.
   let engine: OrderEngine | null = null;
   const app = await buildApp(
-    { cfg, store, orders, kick: (id) => void engine?.process(id), catalog, rates, signer, ln },
+    { cfg, store, orders, kick: (id) => void engine?.process(id), catalog, reloadly, rates, signer, ln },
     { logger: true },
   );
   engine = new OrderEngine({
     store,
     ln,
-    vtpass,
+    providers,
     signer,
     log: app.log,
     cfg: { vendDeadlineSec: cfg.VEND_DEADLINE_SEC, tickMs: cfg.ENGINE_TICK_MS },
@@ -56,10 +77,7 @@ async function main(): Promise<void> {
 
   await engine.start();
   await app.listen({ port: cfg.PORT, host: cfg.HOST });
-  app.log.info(
-    { ln: ln.kind, provider: cfg.vtpassConfigured ? (cfg.vtpassIsSandbox ? "vtpass-sandbox" : "vtpass-live") : "unconfigured" },
-    "Confam is up",
-  );
+  app.log.info({ ln: ln.kind, providers: Object.keys(providers) }, "Confam is up");
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");

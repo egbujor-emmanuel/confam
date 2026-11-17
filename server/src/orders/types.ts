@@ -20,7 +20,13 @@ export interface Order {
   updatedAt: number;
   state: OrderState;
   category: Category;
+  provider: "vtpass" | "reloadly";
+  countryCode: string;
+  currency: string;
+  /** Provider service id (VTpass serviceID) or a label for Reloadly operators. */
   serviceId: string;
+  /** Reloadly operator id (null for VTpass). */
+  operatorId: string | null;
   variationCode: string | null;
   productLabel: string;
   /** Raw recipient identifiers: deleted (set null) once the order is terminal. */
@@ -29,9 +35,11 @@ export interface Order {
   recipientMasked: string;
   meterType: "prepaid" | "postpaid" | null;
   customerName: string | null;
-  amountNgn: number;
+  /** Amount in the local currency (NGN, XOF, GHS, KES...). */
+  amountLocal: number;
   amountSats: number;
-  rateNgnPerBtc: number;
+  /** Local currency units per BTC at quote time. */
+  ratePerBtc: number;
   rateSource: string;
   paymentHash: string;
   preimage: string;
@@ -47,6 +55,8 @@ export interface Order {
   releaseReason: ReleaseReason | null;
   providerCode: string | null;
   providerStatus: string | null;
+  /** Provider-side reference needed for status checks (Reloadly transactionId). */
+  providerRef: string | null;
   providerTxId: string | null;
   token: string | null;
   units: string | null;
@@ -78,6 +88,7 @@ export type NewOrder = Omit<
   | "releaseReason"
   | "providerCode"
   | "providerStatus"
+  | "providerRef"
   | "providerTxId"
   | "token"
   | "units"

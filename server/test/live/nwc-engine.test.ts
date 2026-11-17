@@ -5,6 +5,7 @@ import { newPreimagePair } from "../../src/lightning/crypto.ts";
 import { OrderEngine } from "../../src/orders/engine.ts";
 import { OrderStore } from "../../src/orders/store.ts";
 import { ReceiptSigner } from "../../src/receipts/sign.ts";
+import { VtpassProvider } from "../../src/providers/vtpass.ts";
 import { DELIVERED, FAILED, FakeVtpass, silentLog } from "../fakes.ts";
 
 /**
@@ -32,7 +33,7 @@ async function runScenario(vtpassResponse: unknown) {
   const engine = new OrderEngine({
     store,
     ln: merchant,
-    vtpass: vt,
+    providers: { vtpass: new VtpassProvider(vt) },
     signer: new ReceiptSigner("22".repeat(32)),
     log: silentLog,
     cfg: { vendDeadlineSec: 60, tickMs: 1000 },
@@ -45,7 +46,11 @@ async function runScenario(vtpassResponse: unknown) {
     {
       id: "liveorder0000000000000",
       category: "airtime",
+      provider: "vtpass",
+      countryCode: "NG",
+      currency: "NGN",
       serviceId: "mtn",
+      operatorId: null,
       variationCode: null,
       productLabel: "₦50 MTN Airtime VTU",
       billersCode: null,
@@ -53,9 +58,9 @@ async function runScenario(vtpassResponse: unknown) {
       recipientMasked: "0801****111",
       meterType: null,
       customerName: null,
-      amountNgn: 50,
+      amountLocal: 50,
       amountSats: sats,
-      rateNgnPerBtc: 150_000_000,
+      ratePerBtc: 150_000_000,
       rateSource: "test",
       paymentHash: paymentHashHex,
       preimage: preimageHex,

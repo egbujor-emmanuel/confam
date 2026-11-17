@@ -1,14 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { Config } from "../config.ts";
+import { COUNTRIES, findCountry, toInternational } from "../countries.ts";
 import { AppError } from "../errors.ts";
 import type { HoldInvoiceProvider } from "../lightning/types.ts";
 import { CreateOrderSchema, type OrderService } from "../orders/service.ts";
 import type { OrderStore } from "../orders/store.ts";
 import type { Category } from "../orders/types.ts";
 import { toPublicOrder } from "../orders/view.ts";
-import { ngnToSats, type RateService } from "../pricing/rates.ts";
+import { localToSats, type RateService } from "../pricing/rates.ts";
 import type { ReceiptSigner } from "../receipts/sign.ts";
+import type { ReloadlyCatalog } from "../reloadly/catalog.ts";
 import type { Catalog } from "../vtpass/catalog.ts";
 
 export interface ApiDeps {
@@ -18,6 +20,7 @@ export interface ApiDeps {
   /** Asks the order engine to process an order right away (it also polls on its own). */
   kick: (orderId: string) => void;
   catalog: Catalog;
+  reloadly: ReloadlyCatalog | null;
   rates: Pick<RateService, "current">;
   signer: ReceiptSigner;
   ln: HoldInvoiceProvider;
@@ -25,6 +28,7 @@ export interface ApiDeps {
 }
 
 const CATEGORIES = ["airtime", "data", "electricity"] as const;
+const isoSchema = z.string().regex(/^[A-Za-z]{2}$/);
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const r = schema.safeParse(value);
@@ -35,6 +39,12 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return r.data;
 }
 
+function requireCountry(iso: string) {
+  const c = findCountry(iso);
+  if (!c) throw new AppError(400, "unknown_country", "That country is not supported yet.");
+  return c;
+}
+
 export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<void> {
   const { cfg } = deps;
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -43,12 +53,42 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
 
   app.get("/api/config", async () => ({
     lightning: { backend: deps.ln.kind, network: cfg.LIGHTNING_NETWORK_LABEL },
-    provider: { configured: cfg.vtpassConfigured, sandbox: cfg.vtpassIsSandbox },
-    limits: { minNgn: cfg.MIN_ORDER_NGN, maxNgn: cfg.MAX_ORDER_NGN, vendDeadlineSec: cfg.VEND_DEADLINE_SEC },
+    providers: {
+      vtpass: { configured: cfg.vtpassConfigured, sandbox: cfg.vtpassIsSandbox },
+      reloadly: { configured: cfg.reloadlyConfigured, sandbox: cfg.reloadlyIsSandbox },
+    },
+    limits: { minNgn: cfg.MIN_ORDER_NGN, maxNgn: cfg.MAX_ORDER_NGN, maxSats: cfg.MAX_ORDER_SATS, vendDeadlineSec: cfg.VEND_DEADLINE_SEC },
     testWallet: cfg.TEST_WALLET_FAUCET ? { enabled: true, balanceSats: cfg.TEST_WALLET_BALANCE_SATS } : { enabled: false },
     receipts: { npub: deps.signer.npub, pubkey: deps.signer.pubkeyHex },
   }));
 
+  app.get("/api/countries", async () => ({
+    countries: COUNTRIES.map((c) => ({
+      ...c,
+      services: Object.fromEntries(CATEGORIES.map((cat) => [cat, deps.orders.route(c, cat)])),
+    })),
+  }));
+
+  // Reloadly: detect the mobile network for a number (airtime outside Nigeria).
+  app.get<{ Querystring: { country?: string; phone?: string } }>(
+    "/api/operators/detect",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req) => {
+      if (!deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
+      const country = requireCountry(parse(isoSchema, req.query.country));
+      const intl = toInternational(parse(z.string().min(6).max(20), req.query.phone), country);
+      if (!intl) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
+      return { operator: await deps.reloadly.detect(intl, country.iso) };
+    },
+  );
+
+  app.get<{ Querystring: { country?: string } }>("/api/data-plans", async (req) => {
+    if (!deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
+    const country = requireCountry(parse(isoSchema, req.query.country));
+    return { plans: await deps.reloadly.dataPlans(country.iso) };
+  });
+
+  // VTpass (Nigeria) catalogue.
   app.get<{ Params: { category: string } }>("/api/catalog/:category", async (req) => {
     const category = parse(z.enum(CATEGORIES), req.params.category) as Category;
     return { services: await deps.catalog.list(category) };
@@ -59,33 +99,26 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     return { variations: await deps.catalog.listVariations(serviceID) };
   });
 
-  app.post(
-    "/api/meter/verify",
-    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
-    async (req) => {
-      const body = parse(
-        z.object({
-          serviceID: z.string().regex(/^[a-z0-9-]{2,40}$/),
-          meterNumber: z.string().regex(/^\d{6,13}$/),
-          meterType: z.enum(["prepaid", "postpaid"]),
-        }),
-        req.body,
-      );
-      return deps.orders.verifyMeter(body.serviceID, body.meterNumber, body.meterType);
-    },
-  );
+  app.post("/api/meter/verify", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
+    const body = parse(
+      z.object({
+        serviceID: z.string().regex(/^[a-z0-9-]{2,40}$/),
+        meterNumber: z.string().regex(/^\d{6,13}$/),
+        meterType: z.enum(["prepaid", "postpaid"]),
+      }),
+      req.body,
+    );
+    return deps.orders.verifyMeter(body.serviceID, body.meterNumber, body.meterType);
+  });
 
-  app.get<{ Querystring: { amountNgn?: string } }>("/api/quote", async (req) => {
-    const amountNgn = parse(z.coerce.number().int().min(1).max(cfg.MAX_ORDER_NGN), req.query.amountNgn);
-    const rate = await deps.rates.current().catch(() => {
+  app.get<{ Querystring: { amount?: string; currency?: string } }>("/api/quote", async (req) => {
+    const amount = parse(z.coerce.number().positive().max(10_000_000), req.query.amount);
+    const currency = parse(z.string().regex(/^[A-Za-z]{3}$/), req.query.currency ?? "NGN").toUpperCase();
+    if (!COUNTRIES.some((c) => c.currency === currency)) throw new AppError(400, "unknown_currency", "Unsupported currency.");
+    const rate = await deps.rates.current(currency).catch(() => {
       throw new AppError(503, "no_rate", "Bitcoin price is unavailable right now.");
     });
-    return {
-      amountNgn,
-      amountSats: ngnToSats(amountNgn, rate.ngnPerBtc, cfg.SERVICE_FEE_BPS),
-      ngnPerBtc: rate.ngnPerBtc,
-      source: rate.source,
-    };
+    return { amount, currency, amountSats: localToSats(amount, rate.perBtc, cfg.SERVICE_FEE_BPS), perBtc: rate.perBtc, source: rate.source };
   });
 
   app.post("/api/orders", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {

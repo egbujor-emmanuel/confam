@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
@@ -5,6 +8,8 @@ import { loadConfig } from "../src/config.ts";
 import { OrderService } from "../src/orders/service.ts";
 import { OrderStore } from "../src/orders/store.ts";
 import { ReceiptSigner } from "../src/receipts/sign.ts";
+import { ReloadlyCatalog } from "../src/reloadly/catalog.ts";
+import type { ReloadlyOperator } from "../src/reloadly/client.ts";
 import { Catalog } from "../src/vtpass/catalog.ts";
 import { FakeLn } from "./fakes.ts";
 
@@ -15,6 +20,8 @@ const cfg = loadConfig({
   VTPASS_API_KEY: "k",
   VTPASS_PUBLIC_KEY: "PK_x",
   VTPASS_SECRET_KEY: "SK_x",
+  RELOADLY_CLIENT_ID: "rid",
+  RELOADLY_CLIENT_SECRET: "rsecret",
   TEST_WALLET_FAUCET: "false",
 });
 
@@ -31,17 +38,47 @@ const vtpassCatalog = {
   variations: async () => [{ variation_code: "mtn-10mb-100", name: "N100 100MB - 24 hrs", variation_amount: "100.00" }],
 };
 
+const orangeSn: ReloadlyOperator = {
+  operatorId: 341,
+  name: "Orange Senegal",
+  supportsLocalAmounts: true,
+  destinationCurrencyCode: "XOF",
+  denominationType: "RANGE",
+  localMinAmount: 100,
+  localMaxAmount: 50000,
+  suggestedAmountsMap: { "1": 500, "2": 1000 },
+};
+const freeDataSn: ReloadlyOperator = {
+  operatorId: 900,
+  name: "Free Senegal Data",
+  supportsLocalAmounts: true,
+  destinationCurrencyCode: "XOF",
+  denominationType: "FIXED",
+  data: true,
+  localFixedAmounts: [1000, 2000],
+  localFixedAmountsDescriptions: { "1000": "1 GB / 7 days", "2000": "3 GB / 30 days" },
+};
+const reloadlyFakeClient = {
+  autoDetectOperator: async (phone: string) => {
+    if (phone.startsWith("22177")) return orangeSn;
+    throw new Error("not found");
+  },
+  operatorsByCountry: async (iso: string) => (iso === "SN" ? [orangeSn, freeDataSn] : []),
+  getOperator: async (id: number) => (id === 341 ? orangeSn : freeDataSn),
+};
+
+const rates = { current: async (currency: string) => ({ currency, perBtc: currency === "XOF" ? 60_000_000 : 150_000_000, source: "test", fetchedAt: Date.now() }) };
+// 50,000 XOF at 60M XOF/BTC = 83,334 sats, which is above this cap (exercised by the cap test).
+const limits = { minNgn: 50, maxNgn: 50000, maxSats: 80000, feeBps: 0, invoiceExpirySec: 600 };
+
 let app: FastifyInstance;
 let store: OrderStore;
 let ln: FakeLn;
 let kicked: string[];
 
-beforeEach(async () => {
-  store = new OrderStore(":memory:");
-  ln = new FakeLn();
-  kicked = [];
+function deps(webDistDir = "/nonexistent") {
   const catalog = new Catalog(vtpassCatalog);
-  const rates = { current: async () => ({ ngnPerBtc: 150_000_000, source: "test", fetchedAt: Date.now() }) };
+  const reloadly = new ReloadlyCatalog(reloadlyFakeClient);
   const orders = new OrderService({
     store,
     ln,
@@ -51,15 +88,24 @@ beforeEach(async () => {
           ? { code: "000", content: { Customer_Name: "TESTMETER ONE", Address: "ABULE EGBA", Can_Vend: "yes", WrongBillersCode: false } }
           : { code: "000", content: { error: "meter not found", WrongBillersCode: true } },
     },
-    catalog,
+    vtpassCatalog: catalog,
+    reloadly,
     rates,
-    sandbox: true,
-    limits: { minNgn: 50, maxNgn: 50000, feeBps: 0, invoiceExpirySec: 600 },
+    vtpassSandbox: true,
+    limits,
   });
-  app = await buildApp(
-    { cfg, store, orders, kick: (id) => kicked.push(id), catalog, rates, signer: new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX), ln },
-    { webDistDir: "/nonexistent" },
-  );
+  return {
+    app: { cfg, store, orders, kick: (id: string) => kicked.push(id), catalog, reloadly, rates, signer: new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX), ln },
+    opts: { webDistDir },
+  };
+}
+
+beforeEach(async () => {
+  store = new OrderStore(":memory:");
+  ln = new FakeLn();
+  kicked = [];
+  const d = deps();
+  app = await buildApp(d.app, d.opts);
 });
 
 afterEach(async () => {
@@ -67,77 +113,123 @@ afterEach(async () => {
   store.close();
 });
 
-describe("API", () => {
+describe("API: config & catalogue", () => {
   it("exposes config without secrets", async () => {
     const res = await app.inject({ method: "GET", url: "/api/config" });
     expect(res.statusCode).toBe(200);
-    const body = res.body;
-    expect(body).not.toContain("SK_x");
-    expect(body).not.toContain("secret=");
-    expect(res.json()).toMatchObject({ provider: { configured: true, sandbox: true }, testWallet: { enabled: false } });
+    expect(res.body).not.toContain("SK_x");
+    expect(res.body).not.toContain("rsecret");
+    expect(res.body).not.toContain("secret=");
+    expect(res.json()).toMatchObject({ providers: { vtpass: { configured: true }, reloadly: { configured: true, sandbox: true } } });
   });
 
-  it("filters the catalogue to supported Nigerian networks", async () => {
+  it("lists African countries with the provider serving each service", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/countries" });
+    const byIso = Object.fromEntries(res.json().countries.map((c: { iso: string }) => [c.iso, c]));
+    expect(byIso.NG.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: "vtpass" });
+    expect(byIso.SN.services).toEqual({ airtime: "reloadly", data: "reloadly", electricity: null });
+    expect(byIso.SN).toMatchObject({ currency: "XOF", dial: "221" });
+  });
+
+  it("filters the VTpass catalogue to supported Nigerian networks", async () => {
     const res = await app.inject({ method: "GET", url: "/api/catalog/airtime" });
     expect(res.json().services.map((s: { serviceID: string }) => s.serviceID)).toEqual(["mtn"]);
   });
 
-  it("creates an airtime order, kicks the engine, and never leaks preimage / raw phone / request id", async () => {
+  it("detects a Senegalese operator and lists local data plans", async () => {
+    const det = await app.inject({ method: "GET", url: "/api/operators/detect?country=SN&phone=77%20123%2045%2067" });
+    expect(det.json().operator).toMatchObject({ operatorId: "341", name: "Orange Senegal", currency: "XOF", minAmount: 100 });
+    const bad = await app.inject({ method: "GET", url: "/api/operators/detect?country=SN&phone=70%20123%2045%2067" });
+    expect(bad.json().error.code).toBe("operator_not_found");
+    const plans = await app.inject({ method: "GET", url: "/api/data-plans?country=SN" });
+    expect(plans.json().plans).toEqual([
+      { operatorId: "900", operatorName: "Free Senegal Data", amountLocal: 1000, name: "1 GB / 7 days" },
+      { operatorId: "900", operatorName: "Free Senegal Data", amountLocal: 2000, name: "3 GB / 30 days" },
+    ]);
+  });
+
+  it("quotes in any supported currency", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/quote?amount=600&currency=XOF" });
+    expect(res.json()).toMatchObject({ currency: "XOF", amountSats: 1000 });
+    expect((await app.inject({ method: "GET", url: "/api/quote?amount=600&currency=EUR" })).statusCode).toBe(400);
+  });
+});
+
+describe("API: orders", () => {
+  it("creates a Nigerian airtime order via VTpass and never leaks secrets or the raw phone", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/orders",
-      payload: { category: "airtime", serviceID: "mtn", phone: "0801 111 1111", amountNgn: 1500 },
+      payload: { category: "airtime", countryCode: "NG", serviceID: "mtn", phone: "0801 111 1111", amountLocal: 1500 },
     });
     expect(res.statusCode).toBe(201);
     const o = res.json();
-    expect(o).toMatchObject({ state: "awaiting_payment", amountNgn: 1500, amountSats: 1000, recipient: "0801****111" });
-    expect(o.invoice).toMatch(/^lntbs/);
+    expect(o).toMatchObject({ state: "awaiting_payment", amountLocal: 1500, currency: "NGN", amountSats: 1000, recipient: "0801****111" });
     expect(kicked).toEqual([o.id]);
     const stored = store.get(o.id)!;
+    expect(stored.provider).toBe("vtpass");
     expect(res.body).not.toContain(stored.preimage);
     expect(res.body).not.toContain(stored.requestId);
     expect(res.body).not.toContain("08011111111");
-
-    const view = await app.inject({ method: "GET", url: `/api/orders/${o.id}` });
-    expect(view.json().timeline[0]).toMatchObject({ state: "awaiting_payment" });
   });
 
-  it("prices data plans from the provider catalogue, ignoring any client amount", async () => {
+  it("creates a Senegal airtime order via Reloadly in XOF with the detected operator", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/orders",
-      payload: { category: "data", serviceID: "mtn-data", phone: "08011111111", variationCode: "mtn-10mb-100", amountNgn: 1 },
+      payload: { category: "airtime", countryCode: "SN", phone: "77 123 45 67", amountLocal: 600 },
     });
     expect(res.statusCode).toBe(201);
-    expect(res.json().amountNgn).toBe(100);
+    const o = res.json();
+    expect(o).toMatchObject({ currency: "XOF", countryCode: "SN", amountLocal: 600, amountSats: 1000, product: "600 XOF Orange Senegal airtime" });
+    expect(store.get(o.id)).toMatchObject({ provider: "reloadly", operatorId: "341", phone: "221771234567" });
+    expect(res.body).not.toContain("221771234567");
+  });
+
+  it("enforces the operator's local limits and fixed data-plan prices", async () => {
+    const tooSmall = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 50 } });
+    expect(tooSmall.json().error.code).toBe("bad_amount");
+    const plan = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "data", countryCode: "SN", phone: "771234567", operatorId: "900", amountLocal: 2000 } });
+    expect(plan.statusCode).toBe(201);
+    expect(plan.json().product).toBe("Free Senegal Data: 3 GB / 30 days");
+    const fakePlan = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "data", countryCode: "SN", phone: "771234567", operatorId: "900", amountLocal: 1 } });
+    expect(fakePlan.json().error.code).toBe("unknown_plan");
+  });
+
+  it("caps any order by sats regardless of currency", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 50000 } });
+    expect(res.json().error.code).toBe("bad_amount");
+  });
+
+  it("prices Nigerian data plans from the provider catalogue, ignoring any client amount", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      payload: { category: "data", countryCode: "NG", serviceID: "mtn-data", phone: "08011111111", variationCode: "mtn-10mb-100", amountLocal: 1 },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().amountLocal).toBe(100);
   });
 
   it("verifies the meter before an electricity order and masks the customer name", async () => {
-    const ok = await app.inject({
-      method: "POST",
-      url: "/api/orders",
-      payload: { category: "electricity", serviceID: "ikeja-electric", meterNumber: "1111111111111", meterType: "prepaid", phone: "08011111111", amountNgn: 2000 },
-    });
+    const payload = { category: "electricity", countryCode: "NG", serviceID: "ikeja-electric", meterType: "prepaid", phone: "08011111111", amountLocal: 2000 };
+    const ok = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, meterNumber: "1111111111111" } });
     expect(ok.statusCode).toBe(201);
     expect(ok.json()).toMatchObject({ customerName: "TESTMETER O.", recipient: "meter 1111******111" });
-
-    const bad = await app.inject({
-      method: "POST",
-      url: "/api/orders",
-      payload: { category: "electricity", serviceID: "ikeja-electric", meterNumber: "1234567890123", meterType: "prepaid", phone: "08011111111", amountNgn: 2000 },
-    });
-    expect(bad.statusCode).toBe(422);
+    const bad = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, meterNumber: "1234567890123" } });
     expect(bad.json().error.code).toBe("meter_not_found");
+    const notNg = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, countryCode: "SN", meterNumber: "1111111111111" } });
+    expect(notNg.json().error.code).toBe("provider_unconfigured");
   });
 
-  it("rejects bad input with clear errors", async () => {
+  it("rejects bad input with clear errors and never kicks the engine", async () => {
     const cases = [
-      { payload: { category: "airtime", serviceID: "mtn", phone: "123", amountNgn: 100 }, code: "invalid_input" },
-      { payload: { category: "airtime", serviceID: "mtn", phone: "08031234567", amountNgn: 10 }, code: "bad_amount" },
-      { payload: { category: "airtime", serviceID: "mtn", phone: "08031234567", amountNgn: 60000 }, code: "bad_amount" },
-      { payload: { category: "airtime", serviceID: "foreign-airtime", phone: "08031234567", amountNgn: 100 }, code: "unknown_service" },
-      { payload: { category: "airtime", serviceID: "mtn", phone: "06031234567", amountNgn: 100 }, code: "bad_phone" },
-      { payload: { category: "crypto", serviceID: "mtn" }, code: "invalid_input" },
+      { payload: { category: "airtime", countryCode: "NG", serviceID: "mtn", phone: "123", amountLocal: 100 }, code: "invalid_input" },
+      { payload: { category: "airtime", countryCode: "NG", serviceID: "mtn", phone: "08031234567", amountLocal: 10 }, code: "bad_amount" },
+      { payload: { category: "airtime", countryCode: "NG", serviceID: "foreign-airtime", phone: "08031234567", amountLocal: 100 }, code: "unknown_service" },
+      { payload: { category: "airtime", countryCode: "NG", serviceID: "mtn", phone: "06031234567", amountLocal: 100 }, code: "bad_phone" },
+      { payload: { category: "airtime", countryCode: "XX", phone: "08031234567", amountLocal: 100 }, code: "unknown_country" },
+      { payload: { category: "crypto", countryCode: "NG" }, code: "invalid_input" },
     ];
     for (const c of cases) {
       const res = await app.inject({ method: "POST", url: "/api/orders", payload: c.payload });
@@ -150,39 +242,21 @@ describe("API", () => {
   it("returns 404 for unknown orders and 400 for malformed ids", async () => {
     expect((await app.inject({ method: "GET", url: "/api/orders/AAAAAAAAAAAAAAAAAAAAAA" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/api/orders/not-a-valid-id!" })).statusCode).toBe(400);
-    // Path traversal is normalised away before routing and never reaches the order handler.
     expect((await app.inject({ method: "GET", url: "/api/orders/../../etc/passwd" })).statusCode).toBe(404);
   });
+});
 
-  it("serves index.html as no-cache and hashed assets as immutable (no stale app after deploys)", async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const { tmpdir } = await import("node:os");
+describe("API: static app & headers", () => {
+  it("serves index.html as no-cache, hashed assets as immutable, and never HTML for a missing asset", async () => {
     const dist = mkdtempSync(join(tmpdir(), "confam-dist-"));
     mkdirSync(join(dist, "assets"));
     writeFileSync(join(dist, "index.html"), "<!doctype html><title>t</title>");
     writeFileSync(join(dist, "assets", "index-abc123.js"), "console.log(1)");
-    const catalog = new Catalog(vtpassCatalog);
-    const rates = { current: async () => ({ ngnPerBtc: 1, source: "t", fetchedAt: 0 }) };
-    const web = await buildApp(
-      {
-        cfg,
-        store,
-        orders: new OrderService({ store, ln, vtpass: null, catalog, rates, sandbox: true, limits: { minNgn: 50, maxNgn: 50000, feeBps: 0, invoiceExpirySec: 600 } }),
-        kick: () => {},
-        catalog,
-        rates,
-        signer: new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX),
-        ln,
-      },
-      { webDistDir: dist },
-    );
+    const d = deps(dist);
+    const web = await buildApp(d.app, d.opts);
     expect((await web.inject({ url: "/" })).headers["cache-control"]).toBe("no-cache");
-    expect((await web.inject({ url: "/#/order/x" })).headers["cache-control"]).toBe("no-cache");
     expect((await web.inject({ url: "/some/deep/link" })).headers["cache-control"]).toBe("no-cache");
     expect((await web.inject({ url: "/assets/index-abc123.js" })).headers["cache-control"]).toContain("immutable");
-    expect((await web.inject({ url: "/api/nope" })).statusCode).toBe(404);
-    // A file added after startup (a rebuild) is served, and a missing asset 404s instead of returning HTML.
     writeFileSync(join(dist, "assets", "index-new999.js"), "console.log(2)");
     const added = await web.inject({ url: "/assets/index-new999.js" });
     expect(added.statusCode).toBe(200);

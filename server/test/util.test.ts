@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hashOfPreimage, newPreimagePair } from "../src/lightning/crypto.ts";
-import { ngnToSats } from "../src/pricing/rates.ts";
+import { localToSats } from "../src/pricing/rates.ts";
 import { maskId, maskName } from "../src/util/mask.ts";
 import { acceptPhone, guessNetwork, normalizeNgPhone } from "../src/util/phone.ts";
 import { lagosStamp, newRequestId } from "../src/vtpass/requestId.ts";
@@ -21,23 +21,23 @@ describe("request id (VTpass rules)", () => {
   });
 });
 
-describe("ngnToSats", () => {
+describe("localToSats", () => {
   it("converts and always rounds up", () => {
     // ₦1,000 at ₦150,000,000/BTC = 666.67 sats -> 667
-    expect(ngnToSats(1000, 150_000_000)).toBe(667);
+    expect(localToSats(1000, 150_000_000)).toBe(667);
   });
 
   it("returns an exact value without bumping on exact division", () => {
-    expect(ngnToSats(1500, 150_000_000)).toBe(1000);
+    expect(localToSats(1500, 150_000_000)).toBe(1000);
   });
 
   it("applies a fee in basis points", () => {
-    expect(ngnToSats(1500, 150_000_000, 100)).toBe(1010);
+    expect(localToSats(1500, 150_000_000, 100)).toBe(1010);
   });
 
   it("rejects non-positive input", () => {
-    expect(() => ngnToSats(0, 1)).toThrow();
-    expect(() => ngnToSats(100, 0)).toThrow();
+    expect(() => localToSats(0, 1)).toThrow();
+    expect(() => localToSats(100, 0)).toThrow();
   });
 });
 

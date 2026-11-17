@@ -1,13 +1,6 @@
 import { LightningError, type HoldInvoiceProvider } from "../lightning/types.ts";
+import type { BillProvider, ProviderRegistry, VendResult } from "../providers/types.ts";
 import type { ReceiptSigner } from "../receipts/sign.ts";
-import {
-  classifyVtpass,
-  extractToken,
-  extractTransactionId,
-  extractUnits,
-  type Classification,
-} from "../vtpass/classify.ts";
-import { VtpassNetworkError, type PayParams, type VtpassClient } from "../vtpass/client.ts";
 import type { OrderStore } from "./store.ts";
 import { ACTIVE_STATES, type Order, type ReleaseReason } from "./types.ts";
 
@@ -30,7 +23,7 @@ export interface EngineConfig {
 export interface EngineDeps {
   store: OrderStore;
   ln: HoldInvoiceProvider;
-  vtpass: Pick<VtpassClient, "pay" | "requery"> | null;
+  providers: ProviderRegistry;
   signer: ReceiptSigner;
   log: Logger;
   cfg: EngineConfig;
@@ -40,8 +33,8 @@ export interface EngineDeps {
 /**
  * Drives every order through: lock -> buy -> (deliver -> settle) | (fail -> cancel).
  * Invariants:
- *  1. VTpass /pay is called at most once per order (guarded by the locked->vending CAS).
- *  2. /pay is never called unless the customer's sats are locked (hold invoice ACCEPTED).
+ *  1. provider.purchase() is called at most once per order (guarded by the locked->vending CAS).
+ *  2. purchase() is never called unless the customer's sats are locked (hold invoice ACCEPTED).
  *  3. The hold invoice is settled only after the provider confirms delivery.
  *  4. Anything unclear keeps the lock; at the deadline the lock is released (customer is never charged).
  */
@@ -105,6 +98,10 @@ export class OrderEngine {
     }
   }
 
+  private provider(order: Order): BillProvider | null {
+    return this.deps.providers[order.provider] ?? null;
+  }
+
   private async step(orderId: string): Promise<void> {
     let order = this.deps.store.get(orderId);
     if (!order) return;
@@ -149,13 +146,12 @@ export class OrderEngine {
       this.deps.log.error({ orderId: order.id, state: status.state }, "unexpected invoice state while locked");
       return null;
     }
-    if (!this.deps.vtpass) {
-      return this.release(order, "delivery_failed", "bill provider not configured");
-    }
+    const provider = this.provider(order);
+    if (!provider) return this.release(order, "delivery_failed", `bill provider ${order.provider} not configured`);
 
     const startedAt = this.now();
-    // lastRequeryAt = startedAt: the /pay call counts as the latest provider contact, so the first
-    // requery waits a full interval (VTpass code 089 asks clients not to fire back-to-back requests).
+    // lastRequeryAt = startedAt: the purchase call counts as the latest provider contact, so the first
+    // status check waits a full interval (providers ask clients not to fire back-to-back requests).
     const claimed = this.deps.store.transition(
       order.id,
       "locked",
@@ -166,17 +162,15 @@ export class OrderEngine {
     );
     if (!claimed) return this.deps.store.get(order.id); // another worker owns the purchase
 
-    let body: unknown = null;
-    let cls: Classification;
+    let result: VendResult;
     try {
-      body = await this.deps.vtpass.pay(buildPayParams(claimed));
-      cls = classifyVtpass(body, { secondsSincePay: 0 });
+      result = await provider.purchase(claimed);
     } catch (err) {
-      const reason = err instanceof VtpassNetworkError ? `no response: ${err.message}` : errMsg(err);
-      cls = { outcome: "pending", code: null, status: null, reason };
+      result = { outcome: "pending", code: null, status: null, reason: errMsg(err) };
     }
-    this.deps.log.info({ orderId: order.id, outcome: cls.outcome, code: cls.code, status: cls.status }, "provider responded");
-    return this.applyOutcome(claimed, cls, body);
+    if (result.providerRef) this.deps.store.patch(order.id, { providerRef: result.providerRef }, this.now());
+    this.deps.log.info({ orderId: order.id, provider: provider.id, outcome: result.outcome, code: result.code, status: result.status }, "provider responded");
+    return this.applyOutcome({ ...claimed, providerRef: result.providerRef ?? claimed.providerRef }, result);
   }
 
   private async onVending(order: Order): Promise<Order | null> {
@@ -184,44 +178,44 @@ export class OrderEngine {
     if (order.lastRequeryAt && nowMs - order.lastRequeryAt < this.cfg.requeryIntervalSec * 1000) {
       return this.checkDeadline(order);
     }
-    if (!this.deps.vtpass) return this.release(order, "delivery_unconfirmed", "bill provider not configured");
-    const secondsSincePay = Math.floor((nowMs - (order.vendStartedAt ?? nowMs)) / 1000);
-    let body: unknown = null;
-    let cls: Classification;
+    const provider = this.provider(order);
+    if (!provider) return this.release(order, "delivery_unconfirmed", `bill provider ${order.provider} not configured`);
+    const secondsSincePurchase = Math.floor((nowMs - (order.vendStartedAt ?? nowMs)) / 1000);
+    let result: VendResult;
     try {
-      body = await this.deps.vtpass.requery(order.requestId);
-      cls = classifyVtpass(body, { secondsSincePay });
+      result = await provider.check(order, secondsSincePurchase);
     } catch (err) {
-      cls = { outcome: "pending", code: null, status: null, reason: errMsg(err) };
+      result = { outcome: "pending", code: null, status: null, reason: errMsg(err) };
     }
-    this.deps.store.patch(order.id, { lastRequeryAt: nowMs }, nowMs);
-    return this.applyOutcome({ ...order, lastRequeryAt: nowMs }, cls, body);
+    const patch = { lastRequeryAt: nowMs, ...(result.providerRef && !order.providerRef ? { providerRef: result.providerRef } : {}) };
+    this.deps.store.patch(order.id, patch, nowMs);
+    return this.applyOutcome({ ...order, ...patch }, result);
   }
 
-  private async applyOutcome(order: Order, cls: Classification, body: unknown): Promise<Order | null> {
+  private async applyOutcome(order: Order, result: VendResult): Promise<Order | null> {
     const nowMs = this.now();
-    if (cls.outcome === "delivered") {
+    if (result.outcome === "delivered") {
       return this.deps.store.transition(
         order.id,
         "vending",
         "delivered",
         {
           deliveredAt: nowMs,
-          providerCode: cls.code,
-          providerStatus: cls.status,
-          providerTxId: extractTransactionId(body),
-          token: extractToken(body),
-          units: extractUnits(body),
+          providerCode: result.code,
+          providerStatus: result.status,
+          providerTxId: result.txId ?? null,
+          token: result.token ?? null,
+          units: result.units ?? null,
         },
         "provider confirmed delivery",
         nowMs,
       );
     }
-    if (cls.outcome === "failed") {
-      this.deps.store.patch(order.id, { providerCode: cls.code, providerStatus: cls.status }, nowMs);
-      return this.release(order, "delivery_failed", cls.reason);
+    if (result.outcome === "failed") {
+      this.deps.store.patch(order.id, { providerCode: result.code, providerStatus: result.status }, nowMs);
+      return this.release(order, "delivery_failed", result.reason);
     }
-    this.deps.store.patch(order.id, { providerCode: cls.code, providerStatus: cls.status, failureDetail: cls.reason }, nowMs);
+    this.deps.store.patch(order.id, { providerCode: result.code, providerStatus: result.status, failureDetail: result.reason }, nowMs);
     return this.checkDeadline(order);
   }
 
@@ -291,26 +285,28 @@ export class OrderEngine {
     }
   }
 
+  /** After a release on an unconfirmed outcome, keep asking the provider so ops can reconcile. */
   private async reconcile(order: Order): Promise<void> {
-    if (!this.deps.vtpass || this.inflight.has(order.id)) return;
+    const provider = this.provider(order);
+    if (!provider || this.inflight.has(order.id)) return;
     const nowMs = this.now();
     if (order.lastRequeryAt && nowMs - order.lastRequeryAt < this.cfg.reconIntervalSec * 1000) return;
     if (nowMs - order.createdAt > this.cfg.reconMaxAgeSec * 1000) return;
     this.inflight.add(order.id);
     try {
-      const body = await this.deps.vtpass.requery(order.requestId);
-      const cls = classifyVtpass(body, { secondsSincePay: 3600 });
+      const result = await provider.check(order, 3600);
+      // Only an explicit provider status closes reconciliation; "not visible yet" keeps watching.
       const patch =
-        cls.outcome === "delivered"
-          ? { reconState: "delivered_after_release" as const, token: extractToken(body), units: extractUnits(body) }
-          : cls.outcome === "failed"
+        result.outcome === "delivered"
+          ? { reconState: "delivered_after_release" as const, token: result.token ?? null, units: result.units ?? null }
+          : result.outcome === "failed" && (result.status || result.code)
             ? { reconState: "confirmed_not_delivered" as const }
             : {};
       this.deps.store.patch(order.id, { ...patch, lastRequeryAt: nowMs }, nowMs);
-      if (cls.outcome === "delivered") this.deps.log.warn({ orderId: order.id }, "delivered after release (operator absorbs cost)");
+      if (result.outcome === "delivered") this.deps.log.warn({ orderId: order.id }, "delivered after release (operator absorbs cost)");
     } catch (err) {
       this.deps.store.patch(order.id, { lastRequeryAt: nowMs }, nowMs);
-      this.deps.log.warn({ orderId: order.id, err: errMsg(err) }, "reconciliation requery failed");
+      this.deps.log.warn({ orderId: order.id, err: errMsg(err) }, "reconciliation check failed");
     } finally {
       this.inflight.delete(order.id);
     }
@@ -323,32 +319,6 @@ export class OrderEngine {
       this.deps.log.warn({ orderId: order.id, err: errMsg(err) }, "lightning status unavailable");
       return null;
     }
-  }
-}
-
-export function buildPayParams(order: Order): PayParams {
-  const phone = order.phone ?? "";
-  switch (order.category) {
-    case "airtime":
-      return { requestId: order.requestId, serviceID: order.serviceId, amount: order.amountNgn, phone };
-    case "data":
-      return {
-        requestId: order.requestId,
-        serviceID: order.serviceId,
-        billersCode: order.billersCode ?? phone,
-        variationCode: order.variationCode ?? "",
-        amount: order.amountNgn,
-        phone,
-      };
-    case "electricity":
-      return {
-        requestId: order.requestId,
-        serviceID: order.serviceId,
-        billersCode: order.billersCode ?? "",
-        variationCode: order.meterType ?? "prepaid",
-        amount: order.amountNgn,
-        phone,
-      };
   }
 }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { OrderEngine, buildPayParams } from "../src/orders/engine.ts";
+import { OrderEngine } from "../src/orders/engine.ts";
+import { VtpassProvider, buildVtpassPayParams } from "../src/providers/vtpass.ts";
 import { OrderStore } from "../src/orders/store.ts";
 import { ReceiptSigner, verifyReceipt } from "../src/receipts/sign.ts";
 import { VtpassNetworkError } from "../src/vtpass/client.ts";
@@ -17,7 +18,7 @@ function setup(vtpass: FakeVtpass | null = new FakeVtpass()) {
   const engine = new OrderEngine({
     store,
     ln,
-    vtpass,
+    providers: vtpass ? { vtpass: new VtpassProvider(vtpass) } : {},
     signer,
     log: silentLog,
     cfg: { vendDeadlineSec: DEADLINE_SEC, tickMs: 1000 },
@@ -255,7 +256,7 @@ describe("OrderEngine: resilience", () => {
   });
 });
 
-describe("buildPayParams", () => {
+describe("buildVtpassPayParams", () => {
   it("maps data orders to billersCode + variation_code", async () => {
     const { store, ln, clock } = setup();
     const order = await seedOrder(store, ln, clock.now(), {
@@ -263,9 +264,9 @@ describe("buildPayParams", () => {
       serviceId: "mtn-data",
       variationCode: "mtn-10mb-100",
       billersCode: "08011111111",
-      amountNgn: 100,
+      amountLocal: 100,
     });
-    expect(buildPayParams(order)).toMatchObject({
+    expect(buildVtpassPayParams(order)).toMatchObject({
       serviceID: "mtn-data",
       billersCode: "08011111111",
       variationCode: "mtn-10mb-100",

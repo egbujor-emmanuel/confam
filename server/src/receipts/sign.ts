@@ -12,7 +12,9 @@ export interface ReceiptContent {
   order: string;
   product: string;
   recipient: string;
-  amount_ngn: number;
+  country: string;
+  amount_local: number;
+  currency: string;
   amount_sats: number;
   payment_hash: string;
   provider_ref: string | null;
@@ -39,7 +41,9 @@ export class ReceiptSigner {
       order: order.id,
       product: order.productLabel,
       recipient: order.recipientMasked,
-      amount_ngn: order.amountNgn,
+      country: order.countryCode,
+      amount_local: order.amountLocal,
+      currency: order.currency,
       amount_sats: order.amountSats,
       payment_hash: order.paymentHash,
       provider_ref: order.providerTxId,
