@@ -3,7 +3,7 @@
 **Pay airtime, data and electricity with Bitcoin. If it doesn't arrive, you were never charged.**
 *E no land? You no pay. · Pas livré ? Pas payé.*
 
-Live app: **{{LIVE_URL}}** · English / Français · works on a mid-range phone
+Live app: **https://confam-qxdh.onrender.com** · English / Français · works on a mid-range phone
 
 Confam pays your bill over Lightning with a **hold invoice**: your sats are *locked*, not sent. Confam
 buys the airtime, data or electricity token from the provider, and only when the provider confirms
@@ -16,7 +16,7 @@ the sats never left your wallet. No refund to chase, no support ticket, no trust
 
 Everything runs on test networks: test sats and provider sandboxes.
 
-1. Open **{{LIVE_URL}}** on your phone or laptop.
+1. Open **https://confam-qxdh.onrender.com** on your phone or laptop.
 2. Tap **⚡ Connect wallet** (top right) → **Get a free test wallet**. You get 25,000 test sats.
 3. Pick your country, then a product, and pay with **Pay with my Confam wallet**. Watch the lock:
    *Payment locked → Buying it for you → Provider confirmed delivery → Payment completed*.
