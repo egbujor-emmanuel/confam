@@ -5,15 +5,11 @@ import { OrderEngine } from "./orders/engine.ts";
 import { OrderService } from "./orders/service.ts";
 import { OrderStore } from "./orders/store.ts";
 import { RateService } from "./pricing/rates.ts";
-import { AtClient } from "./africastalking/client.ts";
-import { AfricasTalkingProvider, AtStatusInbox } from "./providers/africastalking.ts";
-import { ReloadlyProvider } from "./providers/reloadly.ts";
 import type { ProviderRegistry } from "./providers/types.ts";
 import { VtpassProvider } from "./providers/vtpass.ts";
 import { ReceiptSigner } from "./receipts/sign.ts";
-import { ReloadlyCatalog } from "./reloadly/catalog.ts";
-import { ReloadlyClient } from "./reloadly/client.ts";
 import { Catalog } from "./vtpass/catalog.ts";
+import { IntlCatalog } from "./vtpass/intl.ts";
 import { VtpassClient } from "./vtpass/client.ts";
 
 async function main(): Promise<void> {
@@ -29,24 +25,22 @@ async function main(): Promise<void> {
         secretKey: cfg.VTPASS_SECRET_KEY as string,
       })
     : null;
-  const reloadlyClient = cfg.reloadlyConfigured
-    ? new ReloadlyClient({
-        baseUrl: cfg.RELOADLY_BASE_URL,
-        clientId: cfg.RELOADLY_CLIENT_ID as string,
-        clientSecret: cfg.RELOADLY_CLIENT_SECRET as string,
-      })
-    : null;
-
-  const atClient = cfg.atConfigured ? new AtClient({ username: cfg.AT_USERNAME as string, apiKey: cfg.AT_API_KEY as string }) : null;
-  const atInbox = atClient ? new AtStatusInbox() : null;
-
   const providers: ProviderRegistry = {};
-  if (atClient && atInbox) providers.africastalking = new AfricasTalkingProvider(atClient, atInbox);
-  if (vtpass) providers.vtpass = new VtpassProvider(vtpass);
-  if (reloadlyClient) providers.reloadly = new ReloadlyProvider(reloadlyClient);
+  if (vtpass) providers.vtpass = new VtpassProvider(vtpass, cfg.VTPASS_CUSTOMER_EMAIL);
+
+  // International airtime/data: the country list is read once at startup from VTpass's catalogue.
+  const intl = vtpass ? new IntlCatalog(cfg.VTPASS_INTL_CATALOG_URL ?? cfg.VTPASS_BASE_URL) : null;
+  let intlCountries: ReadonlySet<string> = new Set();
+  if (intl) {
+    try {
+      intlCountries = await intl.countryCodes();
+    } catch (err) {
+      process.stderr.write(`International catalogue unavailable at startup: ${err instanceof Error ? err.message : String(err)}
+`);
+    }
+  }
 
   const catalog = new Catalog(vtpass);
-  const reloadly = reloadlyClient ? new ReloadlyCatalog(reloadlyClient) : null;
   const rates = new RateService();
   const signer = new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX);
   const orders = new OrderService({
@@ -54,8 +48,8 @@ async function main(): Promise<void> {
     ln,
     vtpass,
     vtpassCatalog: catalog,
-    reloadly,
-    africastalking: Boolean(atClient),
+    intl,
+    intlCountries,
     rates,
     vtpassSandbox: cfg.vtpassIsSandbox,
     limits: {
@@ -70,7 +64,7 @@ async function main(): Promise<void> {
   // The engine logs through Fastify's (redacting) logger, so it is created right after the app.
   let engine: OrderEngine | null = null;
   const app = await buildApp(
-    { cfg, store, orders, kick: (id) => void engine?.process(id), catalog, reloadly, atInbox, rates, signer, ln },
+    { cfg, store, orders, kick: (id) => void engine?.process(id), catalog, intl, rates, signer, ln },
     { logger: true },
   );
   engine = new OrderEngine({

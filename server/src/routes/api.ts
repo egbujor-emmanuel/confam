@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { atAirtimeLimits } from "../africastalking/coverage.ts";
 import type { Config } from "../config.ts";
 import { COUNTRIES, findCountry, toInternational } from "../countries.ts";
 import { AppError } from "../errors.ts";
@@ -10,10 +9,9 @@ import type { OrderStore } from "../orders/store.ts";
 import type { Category } from "../orders/types.ts";
 import { toPublicOrder } from "../orders/view.ts";
 import { localToSats, type RateService } from "../pricing/rates.ts";
-import type { AtStatusInbox } from "../providers/africastalking.ts";
 import type { ReceiptSigner } from "../receipts/sign.ts";
-import type { ReloadlyCatalog } from "../reloadly/catalog.ts";
 import type { Catalog } from "../vtpass/catalog.ts";
+import { costNgn, type IntlCatalog } from "../vtpass/intl.ts";
 
 export interface ApiDeps {
   cfg: Config;
@@ -22,9 +20,7 @@ export interface ApiDeps {
   /** Asks the order engine to process an order right away (it also polls on its own). */
   kick: (orderId: string) => void;
   catalog: Catalog;
-  reloadly: ReloadlyCatalog | null;
-  /** Receives Africa's Talking airtime status callbacks (null when AT is not configured). */
-  atInbox?: AtStatusInbox | null;
+  intl: IntlCatalog | null;
   rates: Pick<RateService, "current">;
   signer: ReceiptSigner;
   ln: HoldInvoiceProvider;
@@ -59,8 +55,6 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     lightning: { backend: deps.ln.kind, network: cfg.LIGHTNING_NETWORK_LABEL },
     providers: {
       vtpass: { configured: cfg.vtpassConfigured, sandbox: cfg.vtpassIsSandbox },
-      reloadly: { configured: cfg.reloadlyConfigured, sandbox: cfg.reloadlyIsSandbox },
-      africastalking: { configured: cfg.atConfigured, sandbox: cfg.atIsSandbox },
     },
     limits: { minNgn: cfg.MIN_ORDER_NGN, maxNgn: cfg.MAX_ORDER_NGN, maxSats: cfg.MAX_ORDER_SATS, vendDeadlineSec: cfg.VEND_DEADLINE_SEC },
     testWallet: cfg.TEST_WALLET_FAUCET ? { enabled: true, balanceSats: cfg.TEST_WALLET_BALANCE_SATS } : { enabled: false },
@@ -77,61 +71,49 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     return { countries: served.length > 0 ? served : all };
   });
 
-  // Mobile network for a number (airtime outside Nigeria). Africa's Talking routes by number itself,
-  // so for its countries the "operator" is the country's airtime range across every network.
-  app.get<{ Querystring: { country?: string; phone?: string } }>(
-    "/api/operators/detect",
-    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
-    async (req) => {
-      const country = requireCountry(parse(isoSchema, req.query.country));
-      const intl = toInternational(parse(z.string().min(6).max(20), req.query.phone), country);
-      if (!intl) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
-      const provider = deps.orders.route(country, "airtime");
-      const at = atAirtimeLimits(country.iso);
-      if (provider === "africastalking" && at) {
-        return {
-          operator: {
-            operatorId: "0",
-            name: "All networks",
-            isAutoNetwork: true,
-            currency: at.currency,
-            minAmount: at.min,
-            maxAmount: at.max,
-            fixedAmounts: [],
-            suggestedAmounts: at.suggested,
-            logo: null,
-            isData: false,
-          },
-        };
-      }
-      if (provider !== "reloadly" || !deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
-      return { operator: await deps.reloadly.detect(intl, country.iso) };
-    },
-  );
-
-  // Africa's Talking airtime status callback. AT does not sign callbacks, so the URL carries a secret
-  // token; a recorded status is only used when AT's own status query cannot answer.
-  if (deps.atInbox && cfg.AT_CALLBACK_TOKEN) {
-    const inbox = deps.atInbox;
-    const token = cfg.AT_CALLBACK_TOKEN;
-    app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, body, done) => {
-      done(null, Object.fromEntries(new URLSearchParams(String(body))));
-    });
-    app.post<{ Params: { token: string } }>("/api/webhooks/africastalking/airtime/:token", async (req, reply) => {
-      if (req.params.token !== token) throw new AppError(404, "not_found", "Not found.");
-      const body = parse(
-        z.object({ requestId: z.string().regex(/^[\w-]{4,80}$/), status: z.enum(["Success", "Failed"]) }).passthrough(),
-        req.body,
-      );
-      inbox.record(body.requestId, body.status);
-      return reply.code(200).send({ ok: true });
-    });
-  }
-
-  app.get<{ Querystring: { country?: string } }>("/api/data-plans", async (req) => {
-    if (!deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
+  // VTpass international airtime/data: networks per country, then products (with naira cost) per network.
+  const intlCategory = z.enum(["airtime", "data"]);
+  app.get<{ Querystring: { country?: string; category?: string } }>("/api/intl/operators", async (req) => {
     const country = requireCountry(parse(isoSchema, req.query.country));
-    return { plans: await deps.reloadly.dataPlans(country.iso) };
+    const category = parse(intlCategory, req.query.category ?? "airtime");
+    if (!deps.intl || deps.orders.route(country, category) !== "vtpass" || country.iso === "NG") {
+      throw new AppError(503, "provider_unconfigured", "This service is not available in that country yet.");
+    }
+    return { operators: await deps.intl.operators(country.iso, category) };
+  });
+
+  app.get<{ Querystring: { operator?: string; category?: string } }>("/api/intl/offers", async (req) => {
+    if (!deps.intl) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
+    const operatorId = parse(z.string().regex(/^\d{1,8}$/), req.query.operator);
+    const category = parse(intlCategory, req.query.category ?? "airtime");
+    const offers = await deps.intl.offers(operatorId, category);
+    // The customer sees local amounts; the naira cost stays server-side (it only sets the sats price).
+    return {
+      offers: offers.map((o) => ({
+        variationCode: o.variationCode,
+        name: o.name,
+        currency: o.currency,
+        isFixed: o.isFixed,
+        amountLocal: o.amountLocal,
+        minLocal: o.minLocal,
+        maxLocal: o.maxLocal,
+      })),
+    };
+  });
+
+  // Exact sats for an international product: priced from VTpass's naira cost, as the order will be.
+  app.get<{ Querystring: { operator?: string; category?: string; variation?: string; amount?: string } }>("/api/intl/quote", async (req) => {
+    if (!deps.intl) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
+    const operatorId = parse(z.string().regex(/^\d{1,8}$/), req.query.operator);
+    const category = parse(intlCategory, req.query.category ?? "airtime");
+    const variation = parse(z.string().regex(/^[\w.-]{1,60}$/), req.query.variation);
+    const offer = await deps.intl.findOffer(operatorId, category, variation);
+    const amountLocal = offer.isFixed ? (offer.amountLocal as number) : parse(z.coerce.number().positive().max(10_000_000), req.query.amount);
+    const cost = costNgn(offer, amountLocal);
+    const rate = await deps.rates.current("NGN").catch(() => {
+      throw new AppError(503, "no_rate", "Bitcoin price is unavailable right now.");
+    });
+    return { amountLocal, currency: offer.currency, amountSats: localToSats(cost, rate.perBtc, cfg.SERVICE_FEE_BPS) };
   });
 
   // VTpass (Nigeria) catalogue.

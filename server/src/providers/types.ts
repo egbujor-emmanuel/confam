@@ -1,6 +1,6 @@
 import type { Order } from "../orders/types.ts";
 
-export type ProviderId = "vtpass" | "reloadly" | "africastalking";
+export type ProviderId = "vtpass";
 export type VendOutcome = "delivered" | "failed" | "pending";
 
 /** What a bill provider said about a purchase, normalised for the order engine. */
@@ -9,7 +9,7 @@ export interface VendResult {
   code: string | null;
   status: string | null;
   reason: string;
-  /** Provider-side transaction reference needed for later status checks (e.g. Reloadly transactionId). */
+  /** Provider-side transaction reference needed for later status checks (e.g. a provider transaction id). */
   providerRef?: string | null;
   /** Provider transaction id shown on the receipt. */
   txId?: string | null;

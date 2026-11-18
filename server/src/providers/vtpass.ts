@@ -3,15 +3,19 @@ import { classifyVtpass, extractToken, extractTransactionId, extractUnits } from
 import { VtpassNetworkError, type PayParams, type VtpassClient } from "../vtpass/client.ts";
 import type { BillProvider, VendResult } from "./types.ts";
 
-/** Nigeria: airtime, data, electricity (prepaid tokens) and TV via VTpass. */
+/** VTpass: Nigerian airtime, data and electricity, plus international airtime and data. */
 export class VtpassProvider implements BillProvider {
   readonly id = "vtpass" as const;
 
-  constructor(private readonly client: Pick<VtpassClient, "pay" | "requery">) {}
+  constructor(
+    private readonly client: Pick<VtpassClient, "pay" | "requery">,
+    /** Customer email VTpass requires on international orders (never a real user's address). */
+    private readonly intlEmail = "sandbox@sandbox.vtpass.com",
+  ) {}
 
   async purchase(order: Order): Promise<VendResult> {
     try {
-      return toResult(await this.client.pay(buildVtpassPayParams(order)), 0);
+      return toResult(await this.client.pay(buildVtpassPayParams(order, this.intlEmail)), 0);
     } catch (err) {
       return pendingFromError(err);
     }
@@ -41,8 +45,28 @@ function pendingFromError(err: unknown): VendResult {
   return { outcome: "pending", code: null, status: null, reason };
 }
 
-export function buildVtpassPayParams(order: Order): PayParams {
+export const INTL_SERVICE_ID = "foreign-airtime";
+
+export function buildVtpassPayParams(order: Order, intlEmail = "sandbox@sandbox.vtpass.com"): PayParams {
   const phone = order.phone ?? "";
+  if (order.serviceId === INTL_SERVICE_ID) {
+    // https://vtpass.com/documentation/foreign-airtime/ : the variation code sets the product, the
+    // amount (local currency) only matters for flexible top-ups.
+    return {
+      requestId: order.requestId,
+      serviceID: INTL_SERVICE_ID,
+      billersCode: phone,
+      variationCode: order.variationCode ?? "",
+      amount: order.amountLocal,
+      phone,
+      extra: {
+        operator_id: order.operatorId ?? "",
+        country_code: order.countryCode,
+        product_type_id: order.category === "data" ? "4" : "1",
+        email: intlEmail,
+      },
+    };
+  }
   switch (order.category) {
     case "airtime":
       return { requestId: order.requestId, serviceID: order.serviceId, amount: order.amountLocal, phone };

@@ -50,13 +50,9 @@ async function main() {
     text = setVar(text, "NOSTR_SECRET_KEY_HEX", randomBytes(32).toString("hex"));
     say("Generated a receipt-signing key.");
   }
-  if (!env.get("AT_CALLBACK_TOKEN")) {
-    text = setVar(text, "AT_CALLBACK_TOKEN", randomBytes(24).toString("base64url"));
-    say("Generated the Africa's Talking callback token.");
-  }
 
   // Pass provider keys through the environment for non-interactive setup.
-  for (const key of ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY", "AT_USERNAME", "AT_API_KEY", "RELOADLY_CLIENT_ID", "RELOADLY_CLIENT_SECRET"]) {
+  for (const key of ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY"]) {
     if (!env.get(key) && process.env[key]) text = setVar(text, key, process.env[key]);
   }
 
@@ -76,13 +72,12 @@ async function main() {
 
   const final = parseEnv(text);
   const missingVtpass = ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY"].filter((k) => !final.get(k));
-  const missingReloadly = ["RELOADLY_CLIENT_ID", "RELOADLY_CLIENT_SECRET"].filter((k) => !final.get(k));
   say("\nSetup complete.");
-  if (missingReloadly.length) {
-    say(`For airtime/data across Africa, add Reloadly sandbox keys to .env (${missingReloadly.join(", ")}): reloadly.com > Developers > API Settings (Test mode).`);
-  }
   if (missingVtpass.length) {
-    say(`For Nigerian electricity tokens, add VTpass sandbox keys to .env (${missingVtpass.join(", ")}): https://sandbox.vtpass.com > Account > API Keys.`);
+    say(
+      `Add VTpass sandbox keys to .env (${missingVtpass.join(", ")}): https://sandbox.vtpass.com > API Keys ` +
+        `(set "API Authentication Type" to "API Keys"), then Account Settings > Whitelist Products.`,
+    );
   }
   say("Start Confam with:  npm start   (then open http://localhost:8787)");
 }

@@ -16,7 +16,7 @@ const TILES: readonly Category[] = ["airtime", "data", "electricity"];
 
 export function Home({ config, countries, country, onCountry }: Props) {
   const { t } = useT();
-  const anyProvider = config ? config.providers.reloadly.configured || config.providers.vtpass.configured : true;
+  const anyProvider = config ? config.providers.vtpass.configured : true;
   const sub: Record<Category, string> = { airtime: t.airtimeSub, data: t.dataSub, electricity: t.electricitySub };
   const label: Record<Category, string> = { airtime: t.airtime, data: t.data, electricity: t.electricity };
 

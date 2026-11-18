@@ -3,18 +3,22 @@ import { api } from "../../api.ts";
 import { money, sats } from "../../format.ts";
 import { useT } from "../../i18n.ts";
 
+/** International products are quoted from VTpass's naira cost (exactly what the invoice will be). */
+export type IntlQuoteKey = { operatorId: string; category: "airtime" | "data"; variationCode: string };
+
 /** Debounced live quote: local amount -> sats. */
-export function useQuote(amount: number, currency: string): number | null {
+export function useQuote(amount: number, currency: string, intl?: IntlQuoteKey | null): number | null {
   const [quote, setQuote] = useState<number | null>(null);
+  const intlKey = intl ? `${intl.operatorId}|${intl.category}|${intl.variationCode}` : "";
   useEffect(() => {
     if (!amount) {
       setQuote(null);
       return;
     }
     let alive = true;
+    const [operatorId, category, variationCode] = intlKey.split("|") as [string, "airtime" | "data", string];
     const t = setTimeout(() => {
-      api
-        .quote(amount, currency)
+      (intlKey ? api.intlQuote(operatorId, category, variationCode, amount) : api.quote(amount, currency))
         .then((q) => alive && setQuote(q.amountSats))
         .catch(() => alive && setQuote(null));
     }, 300);
@@ -22,18 +26,19 @@ export function useQuote(amount: number, currency: string): number | null {
       alive = false;
       clearTimeout(t);
     };
-  }, [amount, currency]);
+  }, [amount, currency, intlKey]);
   return quote;
 }
 
 type QuoteRowsProps = {
   amount: number;
   currency: string;
+  intl?: IntlQuoteKey | null;
 };
 
-export function QuoteRows({ amount, currency }: QuoteRowsProps) {
+export function QuoteRows({ amount, currency, intl }: QuoteRowsProps) {
   const { lang, t } = useT();
-  const quote = useQuote(amount, currency);
+  const quote = useQuote(amount, currency, intl);
   if (!amount) return null;
   return (
     <dl className="rows quote" aria-live="polite">

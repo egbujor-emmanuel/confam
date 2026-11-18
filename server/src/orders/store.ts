@@ -117,6 +117,35 @@ export class OrderStore {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /**
+   * Upgrades databases created by earlier versions in place. v1 (Nigeria-only) stored naira amounts
+   * and had no provider/country/currency columns; existing rows were all VTpass orders in Nigeria.
+   */
+  private migrate(): void {
+    const cols = new Set((this.db.prepare("PRAGMA table_info(orders)").all() as { name: string }[]).map((c) => c.name));
+    const steps: string[] = [];
+    if (cols.has("amount_ngn") && !cols.has("amount_local")) steps.push("ALTER TABLE orders RENAME COLUMN amount_ngn TO amount_local");
+    if (cols.has("rate_ngn_per_btc") && !cols.has("rate_per_btc")) steps.push("ALTER TABLE orders RENAME COLUMN rate_ngn_per_btc TO rate_per_btc");
+    const added: [string, string][] = [
+      ["provider", "TEXT NOT NULL DEFAULT 'vtpass'"],
+      ["country_code", "TEXT NOT NULL DEFAULT 'NG'"],
+      ["currency", "TEXT NOT NULL DEFAULT 'NGN'"],
+      ["operator_id", "TEXT"],
+      ["provider_ref", "TEXT"],
+    ];
+    for (const [name, type] of added) if (!cols.has(name)) steps.push(`ALTER TABLE orders ADD COLUMN ${name} ${type}`);
+    if (steps.length === 0) return;
+    this.db.exec("BEGIN");
+    try {
+      for (const sql of steps) this.db.exec(sql);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   insert(order: NewOrder, now: number): Order {

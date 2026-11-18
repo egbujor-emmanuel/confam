@@ -7,11 +7,9 @@ import { buildApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { OrderService } from "../src/orders/service.ts";
 import { OrderStore } from "../src/orders/store.ts";
-import { AtStatusInbox } from "../src/providers/africastalking.ts";
 import { ReceiptSigner } from "../src/receipts/sign.ts";
-import { ReloadlyCatalog } from "../src/reloadly/catalog.ts";
-import type { ReloadlyOperator } from "../src/reloadly/client.ts";
 import { Catalog } from "../src/vtpass/catalog.ts";
+import { IntlCatalog } from "../src/vtpass/intl.ts";
 import { FakeLn } from "./fakes.ts";
 
 const cfg = loadConfig({
@@ -21,8 +19,6 @@ const cfg = loadConfig({
   VTPASS_API_KEY: "k",
   VTPASS_PUBLIC_KEY: "PK_x",
   VTPASS_SECRET_KEY: "SK_x",
-  RELOADLY_CLIENT_ID: "rid",
-  RELOADLY_CLIENT_SECRET: "rsecret",
   TEST_WALLET_FAUCET: "false",
 });
 
@@ -39,34 +35,44 @@ const vtpassCatalog = {
   variations: async () => [{ variation_code: "mtn-10mb-100", name: "N100 100MB - 24 hrs", variation_amount: "100.00" }],
 };
 
-const orangeSn: ReloadlyOperator = {
-  operatorId: 341,
-  name: "Orange Senegal",
-  supportsLocalAmounts: true,
-  destinationCurrencyCode: "XOF",
-  denominationType: "RANGE",
-  localMinAmount: 100,
-  localMaxAmount: 50000,
-  suggestedAmountsMap: { "1": 500, "2": 1000 },
-};
-const freeDataSn: ReloadlyOperator = {
-  operatorId: 900,
-  name: "Free Senegal Data",
-  supportsLocalAmounts: true,
-  destinationCurrencyCode: "XOF",
-  denominationType: "FIXED",
-  data: true,
-  localFixedAmounts: [1000, 2000],
-  localFixedAmountsDescriptions: { "1000": "1 GB / 7 days", "2000": "3 GB / 30 days" },
-};
-const reloadlyFakeClient = {
-  autoDetectOperator: async (phone: string) => {
-    if (phone.startsWith("22177")) return orangeSn;
-    throw new Error("not found");
+/**
+ * VTpass international catalogue, shaped exactly like the live responses captured 2026-11-18 from
+ * https://vtpass.com/api/get-international-airtime-operators and /api/service-variations
+ * (Senegal Orange: flexible 100-73,811 XOF at 2.7096 NGN/XOF; Ghana MTN: fixed bundles).
+ */
+const INTL_RESPONSES: Record<string, unknown> = {
+  "/api/get-international-airtime-countries": { response_description: "000", content: { countries: [{ code: "SN" }, { code: "GH" }] } },
+  "/api/get-international-airtime-operators?code=SN&product_type_id=1": {
+    response_description: "000",
+    content: [{ operator_id: "216", name: "Senegal Orange", operator_image: "https://vtpass.com/resources/images/operators/88.png" }],
   },
-  operatorsByCountry: async (iso: string) => (iso === "SN" ? [orangeSn, freeDataSn] : []),
-  getOperator: async (id: number) => (id === 341 ? orangeSn : freeDataSn),
+  "/api/get-international-airtime-operators?code=SN&product_type_id=4": { response_description: "000", content: [] },
+  "/api/service-variations?serviceID=foreign-airtime&operator_id=216&product_type_id=1": {
+    response_description: "000",
+    content: {
+      currency: "XOF",
+      variations: [
+        { variation_code: "5028", name: "Enter flexible amount", fixedPrice: "No", variation_amount: null, variation_amount_min: 100, variation_amount_max: 73811, variation_rate: 2.7096, charged_amount: null, charged_currency: "NGN" },
+      ],
+    },
+  },
+  "/api/get-international-airtime-operators?code=GH&product_type_id=4": { response_description: "000", content: [{ operator_id: "5", name: "Ghana MTN" }] },
+  "/api/service-variations?serviceID=foreign-airtime&operator_id=5&product_type_id=4": {
+    response_description: "000",
+    content: {
+      currency: "GHS",
+      variations: [
+        { variation_code: "18263", name: "2.50GHS IDD Bundle (30.4Mins)", fixedPrice: "Yes", variation_amount: "2.50", variation_rate: 131.112, charged_amount: "327.78", charged_currency: "NGN" },
+        { variation_code: "9001", name: "1GB Mobile Data", fixedPrice: "Yes", variation_amount: "10.00", variation_rate: 131.1, charged_amount: "1311.00", charged_currency: "NGN" },
+      ],
+    },
+  },
 };
+const intlFetch = (async (url: URL | string) => {
+  const u = new URL(String(url));
+  const body = INTL_RESPONSES[u.pathname + u.search];
+  return new Response(JSON.stringify(body ?? { response_description: "011" }), { status: 200 });
+}) as typeof fetch;
 
 const rates = { current: async (currency: string) => ({ currency, perBtc: currency === "XOF" ? 60_000_000 : 150_000_000, source: "test", fetchedAt: Date.now() }) };
 // 50,000 XOF at 60M XOF/BTC = 83,334 sats, which is above this cap (exercised by the cap test).
@@ -79,7 +85,7 @@ let kicked: string[];
 
 function deps(webDistDir = "/nonexistent") {
   const catalog = new Catalog(vtpassCatalog);
-  const reloadly = new ReloadlyCatalog(reloadlyFakeClient);
+  const intl = new IntlCatalog("https://vtpass.com", intlFetch);
   const orders = new OrderService({
     store,
     ln,
@@ -90,13 +96,14 @@ function deps(webDistDir = "/nonexistent") {
           : { code: "000", content: { error: "meter not found", WrongBillersCode: true } },
     },
     vtpassCatalog: catalog,
-    reloadly,
+    intl,
+    intlCountries: new Set(["SN", "GH"]),
     rates,
     vtpassSandbox: true,
     limits,
   });
   return {
-    app: { cfg, store, orders, kick: (id: string) => kicked.push(id), catalog, reloadly, rates, signer: new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX), ln },
+    app: { cfg, store, orders, kick: (id: string) => kicked.push(id), catalog, intl, rates, signer: new ReceiptSigner(cfg.NOSTR_SECRET_KEY_HEX), ln },
     opts: { webDistDir },
   };
 }
@@ -119,16 +126,16 @@ describe("API: config & catalogue", () => {
     const res = await app.inject({ method: "GET", url: "/api/config" });
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain("SK_x");
-    expect(res.body).not.toContain("rsecret");
     expect(res.body).not.toContain("secret=");
-    expect(res.json()).toMatchObject({ providers: { vtpass: { configured: true }, reloadly: { configured: true, sandbox: true } } });
+    expect(res.json()).toMatchObject({ providers: { vtpass: { configured: true, sandbox: true } } });
   });
 
   it("lists African countries with the provider serving each service", async () => {
     const res = await app.inject({ method: "GET", url: "/api/countries" });
     const byIso = Object.fromEntries(res.json().countries.map((c: { iso: string }) => [c.iso, c]));
     expect(byIso.NG.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: "vtpass" });
-    expect(byIso.SN.services).toEqual({ airtime: "reloadly", data: "reloadly", electricity: null });
+    expect(byIso.SN.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: null });
+    expect(byIso.ML).toBeUndefined(); // not in VTpass's international list in this fixture
     expect(byIso.SN).toMatchObject({ currency: "XOF", dial: "221" });
   });
 
@@ -137,16 +144,16 @@ describe("API: config & catalogue", () => {
     expect(res.json().services.map((s: { serviceID: string }) => s.serviceID)).toEqual(["mtn"]);
   });
 
-  it("detects a Senegalese operator and lists local data plans", async () => {
-    const det = await app.inject({ method: "GET", url: "/api/operators/detect?country=SN&phone=77%20123%2045%2067" });
-    expect(det.json().operator).toMatchObject({ operatorId: "341", name: "Orange Senegal", currency: "XOF", minAmount: 100 });
-    const bad = await app.inject({ method: "GET", url: "/api/operators/detect?country=SN&phone=70%20123%2045%2067" });
-    expect(bad.json().error.code).toBe("operator_not_found");
-    const plans = await app.inject({ method: "GET", url: "/api/data-plans?country=SN" });
-    expect(plans.json().plans).toEqual([
-      { operatorId: "900", operatorName: "Free Senegal Data", amountLocal: 1000, name: "1 GB / 7 days" },
-      { operatorId: "900", operatorName: "Free Senegal Data", amountLocal: 2000, name: "3 GB / 30 days" },
-    ]);
+  it("lists a country's networks and products from VTpass without exposing the naira cost", async () => {
+    const ops = await app.inject({ method: "GET", url: "/api/intl/operators?country=SN&category=airtime" });
+    expect(ops.json().operators).toEqual([{ operatorId: "216", name: "Senegal Orange", logo: "https://vtpass.com/resources/images/operators/88.png" }]);
+    const offers = await app.inject({ method: "GET", url: "/api/intl/offers?operator=216&category=airtime" });
+    expect(offers.json().offers).toEqual([{ variationCode: "5028", name: "Enter flexible amount", currency: "XOF", isFixed: false, amountLocal: null, minLocal: 100, maxLocal: 73811 }]);
+    expect(offers.body).not.toContain("2.7096");
+    const data = await app.inject({ method: "GET", url: "/api/intl/offers?operator=5&category=data" });
+    expect(data.json().offers.map((o: { variationCode: string }) => o.variationCode)).toEqual(["9001"]); // IDD voice bundle filtered out
+    expect((await app.inject({ method: "GET", url: "/api/intl/operators?country=ML&category=airtime" })).statusCode).toBe(503);
+    expect((await app.inject({ method: "GET", url: "/api/intl/operators?country=NG&category=airtime" })).statusCode).toBe(503);
   });
 
   it("quotes in any supported currency", async () => {
@@ -174,31 +181,56 @@ describe("API: orders", () => {
     expect(res.body).not.toContain("08011111111");
   });
 
-  it("creates a Senegal airtime order via Reloadly in XOF with the detected operator", async () => {
+  it("creates a Senegal airtime order priced from VTpass's naira cost, so the sats always cover it", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/orders",
-      payload: { category: "airtime", countryCode: "SN", phone: "77 123 45 67", amountLocal: 600 },
+      payload: { category: "airtime", countryCode: "SN", phone: "77 123 45 67", amountLocal: 1000, operatorId: "216", variationCode: "5028" },
     });
     expect(res.statusCode).toBe(201);
     const o = res.json();
-    expect(o).toMatchObject({ currency: "XOF", countryCode: "SN", amountLocal: 600, amountSats: 1000, product: "600 XOF Orange Senegal airtime" });
-    expect(store.get(o.id)).toMatchObject({ provider: "reloadly", operatorId: "341", phone: "221771234567" });
+    // 1000 XOF x 2.7096 = 2,709.60 NGN; at 150M NGN/BTC = 1,806.4 -> 1,807 sats.
+    expect(o).toMatchObject({ currency: "XOF", countryCode: "SN", amountLocal: 1000, amountSats: 1807, product: "1,000 XOF Senegal Orange airtime" });
+    expect(o.ratePerBtc).toBeCloseTo((1000 * 1e8) / 1807, 3);
+    expect(store.get(o.id)).toMatchObject({ provider: "vtpass", serviceId: "foreign-airtime", operatorId: "216", variationCode: "5028", phone: "221771234567" });
     expect(res.body).not.toContain("221771234567");
   });
 
-  it("enforces the operator's local limits and fixed data-plan prices", async () => {
-    const tooSmall = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 50 } });
+  it("enforces VTpass's local range and fixed bundle prices, and rejects unknown products", async () => {
+    const base = { countryCode: "SN", phone: "771234567", operatorId: "216", variationCode: "5028" };
+    const tooSmall = await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, category: "airtime", amountLocal: 50 } });
     expect(tooSmall.json().error.code).toBe("bad_amount");
-    const plan = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "data", countryCode: "SN", phone: "771234567", operatorId: "900", amountLocal: 2000 } });
-    expect(plan.statusCode).toBe(201);
-    expect(plan.json().product).toBe("Free Senegal Data: 3 GB / 30 days");
-    const fakePlan = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "data", countryCode: "SN", phone: "771234567", operatorId: "900", amountLocal: 1 } });
-    expect(fakePlan.json().error.code).toBe("unknown_plan");
+    const bundle = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      payload: { category: "data", countryCode: "GH", phone: "024 123 4567", operatorId: "5", variationCode: "9001", amountLocal: 1 },
+    });
+    expect(bundle.statusCode).toBe(201);
+    // Fixed price: the client amount is ignored; 1,311 NGN at 150M NGN/BTC -> 874 sats.
+    expect(bundle.json()).toMatchObject({ product: "Ghana MTN: 1GB Mobile Data", amountLocal: 10, currency: "GHS", amountSats: 874 });
+    const fake = await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, category: "airtime", amountLocal: 1000, variationCode: "9999" } });
+    expect(fake.json().error.code).toBe("unknown_plan");
+    const wrongOp = await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, category: "airtime", amountLocal: 1000, operatorId: "5" } });
+    expect(wrongOp.json().error.code).toBe("unknown_operator");
   });
 
-  it("caps any order by sats regardless of currency", async () => {
-    const res = await app.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 50000 } });
+  it("accepts VTpass's sandbox success number for international orders in sandbox mode", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      payload: { category: "airtime", countryCode: "SN", phone: "08011111111", amountLocal: 1000, operatorId: "216", variationCode: "5028" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(store.get(res.json().id)?.phone).toBe("08011111111");
+  });
+
+  it("caps any order by naira cost regardless of currency", async () => {
+    // 73,811 XOF x 2.7096 = 200,000 NGN > MAX_ORDER_NGN (50,000).
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 73811, operatorId: "216", variationCode: "5028" },
+    });
     expect(res.json().error.code).toBe("bad_amount");
   });
 
@@ -278,93 +310,5 @@ describe("API: static app & headers", () => {
     const res = await app.inject({ method: "GET", url: "/api/health" });
     expect(res.headers["content-security-policy"]).toContain("default-src 'self'");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
-  });
-});
-
-describe("API: Africa's Talking airtime", () => {
-  const atCfg = loadConfig({
-    NODE_ENV: "test",
-    MERCHANT_NWC_URL: "nostr+walletconnect://abc?relay=wss://r.example&secret=00",
-    NOSTR_SECRET_KEY_HEX: "11".repeat(32),
-    VTPASS_API_KEY: "k",
-    VTPASS_PUBLIC_KEY: "PK_x",
-    VTPASS_SECRET_KEY: "SK_x",
-    AT_USERNAME: "sandbox",
-    AT_API_KEY: "atkey",
-    AT_CALLBACK_TOKEN: "t".repeat(32),
-    TEST_WALLET_FAUCET: "false",
-  });
-  let atApp: FastifyInstance;
-  let inbox: AtStatusInbox;
-
-  beforeEach(async () => {
-    inbox = new AtStatusInbox();
-    const orders = new OrderService({
-      store,
-      ln,
-      vtpass: { verifyMerchant: async () => ({}) },
-      vtpassCatalog: new Catalog(vtpassCatalog),
-      reloadly: null,
-      africastalking: true,
-      rates,
-      vtpassSandbox: true,
-      limits,
-    });
-    atApp = await buildApp(
-      { cfg: atCfg, store, orders, kick: (id: string) => kicked.push(id), catalog: new Catalog(vtpassCatalog), reloadly: null, atInbox: inbox, rates, signer: new ReceiptSigner(atCfg.NOSTR_SECRET_KEY_HEX), ln },
-      { webDistDir: "/nonexistent" },
-    );
-  });
-  afterEach(async () => {
-    await atApp.close();
-  });
-
-  it("routes airtime outside Nigeria to Africa's Talking and lists only served countries", async () => {
-    const res = await atApp.inject({ method: "GET", url: "/api/countries" });
-    const countries = res.json().countries as { iso: string; services: Record<string, string | null> }[];
-    const sn = countries.find((c) => c.iso === "SN");
-    expect(sn?.services).toEqual({ airtime: "africastalking", data: null, electricity: null });
-    expect(countries.find((c) => c.iso === "NG")?.services.airtime).toBe("vtpass");
-    expect(countries.some((c) => c.iso === "ML")).toBe(false); // not covered by AT, no Reloadly
-    expect(countries.some((c) => c.iso === "ET")).toBe(true);
-    expect(res.body).not.toContain("atkey");
-  });
-
-  it("describes the country's airtime range across every network", async () => {
-    const res = await atApp.inject({ method: "GET", url: "/api/operators/detect?country=SN&phone=771234567" });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().operator).toMatchObject({ isAutoNetwork: true, currency: "XOF", minAmount: 500, maxAmount: 60000, fixedAmounts: [] });
-  });
-
-  it("creates a Senegal airtime order via Africa's Talking within AT's limits", async () => {
-    const res = await atApp.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "77 123 45 67", amountLocal: 1000, operatorId: "0" } });
-    expect(res.statusCode).toBe(201);
-    const order = store.get(res.json().id);
-    expect(order?.provider).toBe("africastalking");
-    expect(order?.currency).toBe("XOF");
-    expect(order?.phone).toBe("221771234567");
-    const low = await atApp.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 100 } });
-    expect(low.statusCode).toBe(400);
-    expect(low.json().error.code).toBe("bad_amount");
-  });
-
-  it("accepts the airtime status callback only with the secret token, as JSON or form data", async () => {
-    const url = `/api/webhooks/africastalking/airtime/${"t".repeat(32)}`;
-    const wrong = await atApp.inject({ method: "POST", url: "/api/webhooks/africastalking/airtime/nope", payload: { requestId: "ATQid_1", status: "Success" } });
-    expect(wrong.statusCode).toBe(404);
-    expect(inbox.get("ATQid_1")).toBeNull();
-    const json = await atApp.inject({ method: "POST", url, payload: { requestId: "ATQid_1", status: "Success", phoneNumber: "+221771234567" } });
-    expect(json.statusCode).toBe(200);
-    expect(inbox.get("ATQid_1")).toBe("Success");
-    const form = await atApp.inject({
-      method: "POST",
-      url,
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: "requestId=ATQid_2&status=Failed",
-    });
-    expect(form.statusCode).toBe(200);
-    expect(inbox.get("ATQid_2")).toBe("Failed");
-    const junk = await atApp.inject({ method: "POST", url, payload: { requestId: "ATQid_3", status: "Delivered?" } });
-    expect(junk.statusCode).toBe(400);
   });
 });

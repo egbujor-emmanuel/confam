@@ -29,16 +29,13 @@ const EnvSchema = z
     VTPASS_PUBLIC_KEY: z.string().min(1).optional(),
     VTPASS_SECRET_KEY: z.string().min(1).optional(),
 
-    // Reloadly airtime/data across Africa (sandbox by default; Test mode credentials).
-    RELOADLY_BASE_URL: z.url().default("https://topups-sandbox.reloadly.com"),
-    RELOADLY_CLIENT_ID: z.string().min(1).optional(),
-    RELOADLY_CLIENT_SECRET: z.string().min(1).optional(),
-
-    // Africa's Talking airtime across Africa. Username "sandbox" uses the free sandbox.
-    AT_USERNAME: z.string().min(1).optional(),
-    AT_API_KEY: z.string().min(1).optional(),
-    /** Secret path segment for the airtime status callback URL (AT does not sign callbacks). */
-    AT_CALLBACK_TOKEN: z.string().regex(/^[A-Za-z0-9_-]{24,}$/).optional(),
+    /**
+     * Where the international airtime/data catalogue is read from (public endpoints). Defaults to
+     * VTPASS_BASE_URL; https://vtpass.com gives the real per-country networks and prices.
+     */
+    VTPASS_INTL_CATALOG_URL: z.url().optional(),
+    /** Customer email VTpass requires on international orders. Defaults to VTpass's sandbox address. */
+    VTPASS_CUSTOMER_EMAIL: z.email().default("sandbox@sandbox.vtpass.com"),
 
     // Signs delivery receipts (Nostr event signatures).
     NOSTR_SECRET_KEY_HEX: z.string().regex(/^[0-9a-fA-F]{64}$/),
@@ -76,10 +73,6 @@ const EnvSchema = z
 export type Config = z.infer<typeof EnvSchema> & {
   vtpassConfigured: boolean;
   vtpassIsSandbox: boolean;
-  reloadlyConfigured: boolean;
-  reloadlyIsSandbox: boolean;
-  atConfigured: boolean;
-  atIsSandbox: boolean;
   corsOrigins: string[];
 };
 
@@ -96,10 +89,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...cfg,
     vtpassConfigured: Boolean(cfg.VTPASS_API_KEY && cfg.VTPASS_PUBLIC_KEY && cfg.VTPASS_SECRET_KEY),
     vtpassIsSandbox: new URL(cfg.VTPASS_BASE_URL).hostname.startsWith("sandbox."),
-    reloadlyConfigured: Boolean(cfg.RELOADLY_CLIENT_ID && cfg.RELOADLY_CLIENT_SECRET),
-    reloadlyIsSandbox: new URL(cfg.RELOADLY_BASE_URL).hostname.includes("sandbox"),
-    atConfigured: Boolean(cfg.AT_USERNAME && cfg.AT_API_KEY),
-    atIsSandbox: cfg.AT_USERNAME === "sandbox",
     corsOrigins: cfg.CORS_ORIGINS.split(",")
       .map((s) => s.trim())
       .filter(Boolean),

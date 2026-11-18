@@ -25,9 +25,9 @@ export interface Order {
   provider: ProviderId;
   countryCode: string;
   currency: string;
-  /** Provider service id (VTpass serviceID) or a label for Reloadly operators. */
+  /** VTpass serviceID ("foreign-airtime" for international orders). */
   serviceId: string;
-  /** Reloadly operator id (null for VTpass). */
+  /** VTpass international operator id (null for Nigerian services). */
   operatorId: string | null;
   variationCode: string | null;
   productLabel: string;
@@ -57,7 +57,7 @@ export interface Order {
   releaseReason: ReleaseReason | null;
   providerCode: string | null;
   providerStatus: string | null;
-  /** Provider-side reference needed for status checks (Reloadly transactionId). */
+  /** Provider-side reference needed for status checks. */
   providerRef: string | null;
   providerTxId: string | null;
   token: string | null;

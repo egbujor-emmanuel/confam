@@ -1,6 +1,6 @@
 export type Category = "airtime" | "data" | "electricity";
 export type OrderState = "awaiting_payment" | "locked" | "vending" | "delivered" | "completed" | "released" | "expired";
-export type ProviderId = "vtpass" | "reloadly" | "africastalking";
+export type ProviderId = "vtpass";
 
 export interface AppConfig {
   lightning: { backend: string; network: string };
@@ -34,25 +34,22 @@ export interface Variation {
   amountNgn: number;
 }
 
-export interface OperatorInfo {
+/** A mobile network VTpass sells to in a country (international airtime/data). */
+export interface IntlOperator {
   operatorId: string;
   name: string;
-  currency: string;
-  minAmount: number | null;
-  maxAmount: number | null;
-  fixedAmounts: number[];
-  suggestedAmounts: number[];
   logo: string | null;
-  isData: boolean;
-  /** The provider routes by number itself (Africa's Talking): no single network to show. */
-  isAutoNetwork?: boolean;
 }
 
-export interface DataPlan {
-  operatorId: string;
-  operatorName: string;
-  amountLocal: number;
+/** A flexible top-up range or a fixed-price bundle, in the recipient's currency. */
+export interface IntlOffer {
+  variationCode: string;
   name: string;
+  currency: string;
+  isFixed: boolean;
+  amountLocal: number | null;
+  minLocal: number | null;
+  maxLocal: number | null;
 }
 
 export interface MeterInfo {
@@ -94,7 +91,7 @@ export interface SignedReceipt {
 }
 
 export type CreateOrderInput =
-  | { category: "airtime"; countryCode: string; phone: string; amountLocal: number; serviceID?: string; operatorId?: string }
+  | { category: "airtime"; countryCode: string; phone: string; amountLocal: number; serviceID?: string; operatorId?: string; variationCode?: string }
   | { category: "data"; countryCode: string; phone: string; serviceID?: string; variationCode?: string; operatorId?: string; amountLocal?: number }
   | { category: "electricity"; countryCode: string; serviceID: string; meterNumber: string; meterType: "prepaid" | "postpaid"; phone: string; amountLocal: number };
 
@@ -129,9 +126,14 @@ const q = encodeURIComponent;
 export const api = {
   config: () => request<AppConfig>("/api/config"),
   countries: () => request<{ countries: Country[] }>("/api/countries").then((r) => r.countries),
-  detectOperator: (country: string, phone: string) =>
-    request<{ operator: OperatorInfo }>(`/api/operators/detect?country=${q(country)}&phone=${q(phone)}`).then((r) => r.operator),
-  dataPlans: (country: string) => request<{ plans: DataPlan[] }>(`/api/data-plans?country=${q(country)}`).then((r) => r.plans),
+  intlOperators: (country: string, category: "airtime" | "data") =>
+    request<{ operators: IntlOperator[] }>(`/api/intl/operators?country=${q(country)}&category=${category}`).then((r) => r.operators),
+  intlOffers: (operatorId: string, category: "airtime" | "data") =>
+    request<{ offers: IntlOffer[] }>(`/api/intl/offers?operator=${q(operatorId)}&category=${category}`).then((r) => r.offers),
+  intlQuote: (operatorId: string, category: "airtime" | "data", variationCode: string, amount: number) =>
+    request<{ amountLocal: number; currency: string; amountSats: number }>(
+      `/api/intl/quote?operator=${q(operatorId)}&category=${category}&variation=${q(variationCode)}&amount=${amount}`,
+    ),
   services: (category: Category) => request<{ services: Service[] }>(`/api/catalog/${category}`).then((r) => r.services),
   variations: (serviceID: string) => request<{ variations: Variation[] }>(`/api/catalog/variations/${q(serviceID)}`).then((r) => r.variations),
   verifyMeter: (serviceID: string, meterNumber: string, meterType: "prepaid" | "postpaid") =>

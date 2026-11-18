@@ -15,6 +15,12 @@ export function normalizeNgPhone(input: string): string | null {
  */
 export const SANDBOX_MAGIC_NUMBERS = new Set(["201000000000", "500000000000", "400000000000", "300000000000"]);
 
+/**
+ * Sandbox numbers for international orders: VTpass's success number plus the outcome simulators above
+ * (https://vtpass.com/documentation/foreign-airtime/). Sandbox only.
+ */
+export const SANDBOX_INTL_NUMBERS: ReadonlySet<string> = new Set(["08011111111", ...SANDBOX_MAGIC_NUMBERS]);
+
 export function acceptPhone(input: string, sandbox: boolean): string | null {
   const trimmed = input.replace(/\s/g, "");
   if (sandbox && SANDBOX_MAGIC_NUMBERS.has(trimmed)) return trimmed;

@@ -4,13 +4,13 @@ import { findCountry, toInternational, type Country } from "../countries.ts";
 import { AppError } from "../errors.ts";
 import { newPreimagePair, type HoldInvoiceProvider } from "../lightning/index.ts";
 import { localToSats, type RateService } from "../pricing/rates.ts";
-import { atAirtimeLimits } from "../africastalking/coverage.ts";
 import type { ProviderId } from "../providers/types.ts";
-import type { ReloadlyCatalog } from "../reloadly/catalog.ts";
+import { INTL_SERVICE_ID } from "../providers/vtpass.ts";
 import { maskId, maskName } from "../util/mask.ts";
-import { acceptPhone } from "../util/phone.ts";
+import { acceptPhone, SANDBOX_INTL_NUMBERS } from "../util/phone.ts";
 import type { Catalog } from "../vtpass/catalog.ts";
 import type { VtpassClient } from "../vtpass/client.ts";
+import { costNgn, type IntlCatalog } from "../vtpass/intl.ts";
 import { newRequestId } from "../vtpass/requestId.ts";
 import type { OrderStore } from "./store.ts";
 import type { Category, NewOrder, Order } from "./types.ts";
@@ -29,6 +29,7 @@ export const CreateOrderSchema = z.discriminatedUnion("category", [
     amountLocal: amount,
     serviceID: serviceId.optional(),
     operatorId: operatorId.optional(),
+    variationCode: z.string().regex(/^[\w.-]{1,60}$/).optional(),
   }),
   z.object({
     category: z.literal("data"),
@@ -62,9 +63,10 @@ export interface OrderServiceDeps {
   ln: HoldInvoiceProvider;
   vtpass: Pick<VtpassClient, "verifyMerchant"> | null;
   vtpassCatalog: Catalog;
-  reloadly: ReloadlyCatalog | null;
-  /** Africa's Talking airtime is configured (no catalogue needed: AT routes by number). */
-  africastalking?: boolean;
+  /** VTpass international airtime/data catalogue (null when VTpass is not configured). */
+  intl: IntlCatalog | null;
+  /** ISO codes VTpass sells international airtime to (loaded from the catalogue at startup). */
+  intlCountries: ReadonlySet<string>;
   rates: Pick<RateService, "current">;
   limits: { minNgn: number; maxNgn: number; maxSats: number; feeBps: number; invoiceExpirySec: number };
   vtpassSandbox: boolean;
@@ -87,7 +89,10 @@ type Product = Pick<
   | "recipientMasked"
   | "meterType"
   | "customerName"
->;
+> & {
+  /** International orders: the naira VTpass charges, which the sats price is computed from. */
+  costNgn?: number;
+};
 
 const fmt = (n: number, currency: string): string =>
   `${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(n)} ${currency}`;
@@ -100,14 +105,14 @@ export class OrderService {
   }
 
   /**
-   * Which provider serves (country, category)? Nigeria prefers VTpass (it also sells data and electricity);
-   * airtime elsewhere goes to Africa's Talking where it covers the country, then Reloadly.
+   * Which provider serves (country, category)? Everything runs on VTpass: Nigerian airtime, data and
+   * electricity, and international airtime/data for the countries VTpass's catalogue lists.
    */
   route(country: Country, category: Category): ProviderId | null {
-    if (country.iso === "NG" && this.deps.vtpass) return "vtpass";
-    if (category === "electricity") return null; // electricity: Nigeria via VTpass for now
-    if (category === "airtime" && this.deps.africastalking && atAirtimeLimits(country.iso)) return "africastalking";
-    return this.deps.reloadly ? "reloadly" : null;
+    if (!this.deps.vtpass) return null;
+    if (country.iso === "NG") return "vtpass";
+    if (category === "electricity") return null; // electricity: Nigeria only
+    return this.deps.intl && this.deps.intlCountries.has(country.iso) ? "vtpass" : null;
   }
 
   async verifyMeter(serviceID: string, meterNumber: string, meterType: "prepaid" | "postpaid"): Promise<MeterInfo> {
@@ -142,17 +147,15 @@ export class OrderService {
     const provider = this.route(country, input.category);
     if (!provider) throw new AppError(503, "provider_unconfigured", "This service is not available in that country yet.");
 
-    const product =
-      provider === "vtpass"
-        ? await this.vtpassProduct(input, country)
-        : provider === "africastalking"
-          ? this.atAirtimeProduct(input, country)
-          : await this.reloadlyProduct(input, country);
+    const { costNgn: cost, ...product } = country.iso === "NG" ? await this.vtpassProduct(input, country) : await this.intlProduct(input, country);
 
-    const rate = await this.deps.rates.current(product.currency).catch(() => {
+    // International orders are priced from what VTpass charges in naira, so the sats always cover the cost.
+    const rate = await this.deps.rates.current(cost === undefined ? product.currency : "NGN").catch(() => {
       throw new AppError(503, "no_rate", "Bitcoin price is unavailable right now. Try again in a minute.");
     });
-    const amountSats = localToSats(product.amountLocal, rate.perBtc, this.deps.limits.feeBps);
+    const amountSats = localToSats(cost ?? product.amountLocal, rate.perBtc, this.deps.limits.feeBps);
+    // Local units per BTC actually paid, so the order page converts sats <-> local amount consistently.
+    const ratePerBtc = cost === undefined ? rate.perBtc : (product.amountLocal * 100_000_000) / amountSats;
     if (amountSats > this.deps.limits.maxSats) {
       throw new AppError(400, "bad_amount", "That amount is above Confam's per-order limit.");
     }
@@ -170,8 +173,8 @@ export class OrderService {
         ...product,
         id: randomBytes(16).toString("base64url"),
         amountSats,
-        ratePerBtc: rate.perBtc,
-        rateSource: rate.source,
+        ratePerBtc,
+        rateSource: cost === undefined ? rate.source : `${rate.source} (NGN) + VTpass rate`,
         paymentHash: paymentHashHex,
         preimage: preimageHex,
         invoice,
@@ -182,88 +185,37 @@ export class OrderService {
     );
   }
 
-  private atAirtimeProduct(input: CreateOrderInput, country: Country): Product {
-    const limits = atAirtimeLimits(country.iso);
-    if (input.category !== "airtime" || !limits) throw new AppError(400, "unsupported", "Only airtime is available in that country yet.");
-    const intl = toInternational(input.phone, country);
-    if (!intl) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
-    const amountLocal = input.amountLocal;
-    if (amountLocal < limits.min || amountLocal > limits.max) {
-      throw new AppError(400, "bad_amount", `Choose ${fmt(limits.min, limits.currency)} to ${fmt(limits.max, limits.currency)}.`);
-    }
+  /** International airtime/data via VTpass: product and price always come from VTpass's catalogue. */
+  private async intlProduct(input: CreateOrderInput, country: Country): Promise<Product> {
+    const intl = this.deps.intl;
+    if (!intl || input.category === "electricity") throw new AppError(400, "unsupported", "That service is not available in this country yet.");
+    if (!input.operatorId) throw new AppError(400, "unknown_operator", "Pick a mobile network.");
+    if (!input.variationCode) throw new AppError(400, "unknown_plan", "Pick a product.");
+    const intlPhone = this.deps.vtpassSandbox && SANDBOX_INTL_NUMBERS.has(input.phone.replace(/\s/g, "")) ? input.phone.replace(/\s/g, "") : toInternational(input.phone, country);
+    if (!intlPhone) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
+    const operator = (await intl.operators(country.iso, input.category)).find((o) => o.operatorId === input.operatorId);
+    if (!operator) throw new AppError(400, "unknown_operator", "That network is not available.");
+    const offer = await intl.findOffer(operator.operatorId, input.category, input.variationCode);
+    const amountLocal = offer.isFixed ? (offer.amountLocal as number) : (input.amountLocal ?? 0);
+    const cost = costNgn(offer, amountLocal);
+    if (cost > this.deps.limits.maxNgn) throw new AppError(400, "bad_amount", "That amount is above Confam's per-order limit.");
+    const label = offer.isFixed ? `${operator.name}: ${offer.name}` : `${fmt(amountLocal, offer.currency)} ${operator.name} airtime`;
     return {
-      category: "airtime",
-      provider: "africastalking",
+      category: input.category,
+      provider: "vtpass",
       countryCode: country.iso,
-      currency: limits.currency,
-      serviceId: `at-airtime-${country.iso.toLowerCase()}`,
-      operatorId: null,
-      variationCode: null,
-      productLabel: `${fmt(amountLocal, limits.currency)} airtime`,
-      amountLocal,
-      billersCode: null,
-      phone: intl,
-      recipientMasked: `+${maskId(intl)}`,
-      meterType: null,
-      customerName: null,
-    };
-  }
-
-  private async reloadlyProduct(input: CreateOrderInput, country: Country): Promise<Product> {
-    const catalog = this.deps.reloadly;
-    if (!catalog) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
-    if (input.category === "electricity") throw new AppError(400, "unsupported", "Electricity is not available in that country yet.");
-    const intl = toInternational(input.phone, country);
-    if (!intl) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
-
-    if (input.category === "airtime") {
-      const op = input.operatorId ? await catalog.operator(input.operatorId) : await catalog.detect(intl, country.iso);
-      if (op.isData) throw new AppError(400, "bad_operator", "Pick an airtime network, not a data plan.");
-      const amountLocal = input.amountLocal;
-      const ok = op.fixedAmounts.length
-        ? op.fixedAmounts.includes(amountLocal)
-        : (op.minAmount === null || amountLocal >= op.minAmount) && (op.maxAmount === null || amountLocal <= op.maxAmount);
-      if (!ok) {
-        const range = op.fixedAmounts.length
-          ? op.fixedAmounts.map((a) => fmt(a, op.currency)).join(", ")
-          : `${fmt(op.minAmount ?? 0, op.currency)} to ${fmt(op.maxAmount ?? 0, op.currency)}`;
-        throw new AppError(400, "bad_amount", `For ${op.name}, choose ${range}.`);
-      }
-      return this.reloadlyBase(country, intl, op.operatorId, `${fmt(amountLocal, op.currency)} ${op.name} airtime`, amountLocal, op.currency, "airtime");
-    }
-
-    if (!input.operatorId || input.amountLocal === undefined) throw new AppError(400, "unknown_plan", "Pick a data plan.");
-    const plan = (await catalog.dataPlans(country.iso)).find(
-      (p) => p.operatorId === input.operatorId && p.amountLocal === input.amountLocal,
-    );
-    if (!plan) throw new AppError(400, "unknown_plan", "That data plan is not available.");
-    return this.reloadlyBase(country, intl, plan.operatorId, `${plan.operatorName}: ${plan.name}`, plan.amountLocal, country.currency, "data");
-  }
-
-  private reloadlyBase(
-    country: Country,
-    intl: string,
-    opId: string,
-    label: string,
-    amountLocal: number,
-    currency: string,
-    category: "airtime" | "data",
-  ): Product {
-    return {
-      category,
-      provider: "reloadly",
-      countryCode: country.iso,
-      currency,
-      serviceId: `reloadly-${opId}`,
-      operatorId: opId,
-      variationCode: null,
+      currency: offer.currency,
+      serviceId: INTL_SERVICE_ID,
+      operatorId: operator.operatorId,
+      variationCode: offer.variationCode,
       productLabel: label,
       amountLocal,
-      billersCode: null,
-      phone: intl,
-      recipientMasked: `+${maskId(intl)}`,
+      billersCode: intlPhone,
+      phone: intlPhone,
+      recipientMasked: `+${maskId(intlPhone)}`,
       meterType: null,
       customerName: null,
+      costNgn: cost,
     };
   }
 

@@ -1,7 +1,7 @@
 import type { AppConfig, Category, Country } from "../api.ts";
 import { navigate } from "../hooks.ts";
 import { useT } from "../i18n.ts";
-import { ReloadlyForm } from "./buy/ReloadlyForm.tsx";
+import { IntlForm } from "./buy/IntlForm.tsx";
 import { VtpassForm } from "./buy/VtpassForm.tsx";
 import { CountryPicker } from "./CountryPicker.tsx";
 
@@ -31,10 +31,10 @@ export function BuyForm({ category, config, countries, country, onCountry }: Pro
       <hr className="dash" />
       {!country ? (
         <p className="muted">…</p>
-      ) : provider === "vtpass" ? (
+      ) : provider === "vtpass" && country.iso === "NG" ? (
         <VtpassForm key={`${country.iso}-${category}`} category={category} sandbox={config?.providers.vtpass.sandbox ?? false} />
-      ) : (provider === "reloadly" || provider === "africastalking") && category !== "electricity" ? (
-        <ReloadlyForm key={`${country.iso}-${category}`} country={country} category={category} />
+      ) : provider === "vtpass" && category !== "electricity" ? (
+        <IntlForm key={`${country.iso}-${category}`} country={country} category={category} sandbox={config?.providers.vtpass.sandbox ?? false} />
       ) : (
         <p className="notice warn">{t.notAvailableHere}</p>
       )}

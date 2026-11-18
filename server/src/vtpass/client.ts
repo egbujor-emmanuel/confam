@@ -14,6 +14,8 @@ export interface PayParams {
   phone: string;
   billersCode?: string;
   variationCode?: string;
+  /** International airtime/data fields: operator_id, country_code, product_type_id, email. */
+  extra?: Record<string, string>;
 }
 
 export interface VtpassService {
@@ -56,6 +58,7 @@ export class VtpassClient {
     if (p.amount !== undefined) body.amount = p.amount;
     if (p.billersCode !== undefined) body.billersCode = p.billersCode;
     if (p.variationCode !== undefined) body.variation_code = p.variationCode;
+    if (p.extra) Object.assign(body, p.extra);
     return this.post("/api/pay", body);
   }
 
