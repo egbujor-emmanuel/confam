@@ -1,4 +1,5 @@
 import { buildApp } from "./app.ts";
+import { readFileSync } from "node:fs";
 import { loadConfig } from "./config.ts";
 import { COUNTRIES } from "./countries.ts";
 import { DexpayClient } from "./dexpay/client.ts";
@@ -36,19 +37,32 @@ async function main(): Promise<void> {
   if (dexpay) providers.dexpay = new DexpayProvider(dexpay);
 
   // International airtime/data: the country list is read once at startup from VTpass's catalogue.
-  const intl = vtpass ? new IntlCatalog(cfg.VTPASS_INTL_CATALOG_URL ?? cfg.VTPASS_BASE_URL) : null;
-  let intlCountries: ReadonlySet<string> = new Set();
-  // Filled in the background: countries where at least one network has data bundles.
+  const intlCatalogUrl = cfg.VTPASS_INTL_CATALOG_URL ?? cfg.VTPASS_BASE_URL;
+  const intl = vtpass ? new IntlCatalog(intlCatalogUrl, fetch, 3_600_000, Date.now, 400, loadIntlSnapshot(intlCatalogUrl)) : null;
+  // Filled from VTpass's catalogue at startup and refreshed every 30 minutes. Add-only: VTpass's
+  // catalogue sometimes answers with an empty list, which must never hide a country that has products.
+  const intlCountries = new Set<string>();
   const intlDataCountries = new Set<string>();
+  const refreshIntl = async (): Promise<void> => {
+    if (!intl) return;
+    try {
+      for (const iso of await intl.countryCodes()) intlCountries.add(iso);
+      const served = COUNTRIES.filter((c) => c.iso !== "NG" && intlCountries.has(c.iso));
+      await findDataCountries(intl, served.map((c) => c.iso), intlDataCountries);
+    } catch (err) {
+      process.stderr.write(`International catalogue refresh failed: ${err instanceof Error ? err.message : String(err)}
+`);
+    }
+  };
   if (intl) {
     try {
-      intlCountries = await intl.countryCodes();
-      const served = COUNTRIES.filter((c) => c.iso !== "NG" && intlCountries.has(c.iso));
-      void findDataCountries(intl, served.map((c) => c.iso), intlDataCountries);
+      for (const iso of await intl.countryCodes()) intlCountries.add(iso);
     } catch (err) {
       process.stderr.write(`International catalogue unavailable at startup: ${err instanceof Error ? err.message : String(err)}
 `);
     }
+    void refreshIntl();
+    setInterval(() => void refreshIntl(), 30 * 60_000).unref();
   }
 
   const catalog = new Catalog(vtpass);
@@ -155,5 +169,18 @@ async function initWithRetry(backup: RemoteBackup, warn: (m: string) => void): P
       warn(`Turso backup unreachable (attempt ${attempt}/5): ${msg}`);
       await new Promise((r) => setTimeout(r, attempt * 2000));
     }
+  }
+}
+
+/** Last-known-good VTpass catalogue replies (scripts/snapshot-intl.mjs); only valid for the live catalogue. */
+function loadIntlSnapshot(catalogUrl: string): Record<string, unknown> {
+  try {
+    const snap = JSON.parse(readFileSync(new URL("./vtpass/intl-snapshot.json", import.meta.url), "utf8")) as {
+      source?: string;
+      responses?: Record<string, unknown>;
+    };
+    return snap.source && new URL(snap.source).host === new URL(catalogUrl).host ? (snap.responses ?? {}) : {};
+  } catch {
+    return {};
   }
 }

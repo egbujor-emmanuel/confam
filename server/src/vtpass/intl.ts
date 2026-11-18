@@ -42,6 +42,10 @@ interface RawVariation {
   charged_currency?: string | null;
 }
 
+/** Extra attempts when VTpass returns an empty list (observed: about 1 in 3 replies during testing). */
+const EMPTY_RETRIES = 2;
+const hasItems = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
+
 const num = (v: unknown): number | null => {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -83,23 +87,32 @@ export function costNgn(offer: IntlOffer, amountLocal: number): number {
  */
 export class IntlCatalog {
   private readonly cache = new Map<string, { at: number; value: unknown }>();
+  /**
+   * Last reply that had data, per path, kept without expiry. Seeded from a committed snapshot of real
+   * VTpass replies, so it also works right after a restart.
+   */
+  private readonly lastGood: Map<string, unknown>;
 
   constructor(
     private readonly baseUrl: string,
     private readonly fetchImpl: FetchLike = fetch,
     private readonly ttlMs = 3_600_000,
     private readonly now: () => number = Date.now,
-  ) {}
+    private readonly retryDelayMs = 400,
+    seed: Readonly<Record<string, unknown>> = {},
+  ) {
+    this.lastGood = new Map(Object.entries(seed));
+  }
 
   /** ISO codes VTpass sells international airtime to. */
   async countryCodes(): Promise<Set<string>> {
-    const body = (await this.get("/api/get-international-airtime-countries")) as { content?: { countries?: { code?: string }[] } };
+    const body = (await this.get("/api/get-international-airtime-countries", (v) => hasItems((v as { content?: { countries?: unknown } }).content?.countries))) as { content?: { countries?: { code?: string }[] } };
     return new Set((body.content?.countries ?? []).map((c) => c.code ?? "").filter((c) => /^[A-Z]{2}$/.test(c)));
   }
 
   async operators(countryIso: string, category: IntlCategory): Promise<IntlOperator[]> {
     const q = `code=${encodeURIComponent(countryIso)}&product_type_id=${INTL_PRODUCT_TYPE[category]}`;
-    const body = (await this.get(`/api/get-international-airtime-operators?${q}`)) as {
+    const body = (await this.get(`/api/get-international-airtime-operators?${q}`, (v) => hasItems((v as { content?: unknown }).content))) as {
       content?: { operator_id?: string | number; name?: string; operator_image?: string }[];
     };
     return (Array.isArray(body.content) ? body.content : [])
@@ -109,7 +122,10 @@ export class IntlCatalog {
 
   async offers(operatorId: string, category: IntlCategory): Promise<IntlOffer[]> {
     const q = `serviceID=foreign-airtime&operator_id=${encodeURIComponent(operatorId)}&product_type_id=${INTL_PRODUCT_TYPE[category]}`;
-    const body = (await this.get(`/api/service-variations?${q}`)) as {
+    const body = (await this.get(`/api/service-variations?${q}`, (v) => {
+      const c = (v as { content?: { variations?: unknown; varations?: unknown } }).content;
+      return hasItems(c?.variations) || hasItems(c?.varations);
+    })) as {
       content?: { currency?: string | null; variations?: RawVariation[]; varations?: RawVariation[] };
     };
     const currency = body.content?.currency ?? null;
@@ -125,9 +141,30 @@ export class IntlCatalog {
     return offer;
   }
 
-  private async get(path: string): Promise<unknown> {
+  /**
+   * GET with caching. VTpass's live catalogue intermittently answers "000" with an EMPTY list for a
+   * country or network that does have products, so an empty reply is retried and never cached:
+   * otherwise one bad reply would hide a network's products for the whole cache period.
+   */
+  private async get(path: string, hasData: (value: unknown) => boolean): Promise<unknown> {
     const hit = this.cache.get(path);
     if (hit && this.now() - hit.at < this.ttlMs) return hit.value;
+    let last: unknown = null;
+    for (let attempt = 0; attempt < EMPTY_RETRIES + 1; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, this.retryDelayMs * attempt));
+      last = await this.fetchOnce(path);
+      if (hasData(last)) {
+        this.cache.set(path, { at: this.now(), value: last });
+        this.lastGood.set(path, last);
+        return last;
+      }
+    }
+    // VTpass sometimes hides a product for hours. Show the last real data instead of nothing: buying a
+    // product that is really down simply fails, and Confam then releases the customer's sats.
+    return this.lastGood.get(path) ?? last; // not cached, so the next request asks VTpass again
+  }
+
+  private async fetchOnce(path: string): Promise<unknown> {
     let res: Response;
     try {
       res = await this.fetchImpl(new URL(path, this.baseUrl), { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
@@ -138,7 +175,6 @@ export class IntlCatalog {
     if (!res.ok || !value || value.response_description !== "000") {
       throw new AppError(503, "catalog_unavailable", "The product catalogue is unavailable. Try again shortly.");
     }
-    this.cache.set(path, { at: this.now(), value });
     return value;
   }
 }

@@ -85,3 +85,58 @@ describe("buildVtpassPayParams for international orders", () => {
     });
   });
 });
+
+describe("IntlCatalog with VTpass's flaky empty replies", () => {
+  const variations = { response_description: "000", content: { currency: "XOF", variations: [{ variation_code: "5028", name: "Enter flexible amount", fixedPrice: "No", variation_amount_min: 100, variation_amount_max: 73811, variation_rate: 2.7096, charged_currency: "NGN" }] } };
+  const empty = { response_description: "000", content: { currency: null, variations: [], varations: [] } };
+
+  it("retries an empty reply and caches the real one", async () => {
+    const replies = [empty, variations];
+    let calls = 0;
+    const cat = new IntlCatalog("https://vtpass.com", (async () => {
+      calls++;
+      return new Response(JSON.stringify(replies.shift() ?? variations), { status: 200 });
+    }) as typeof fetch, 3_600_000, Date.now, 1);
+    expect((await cat.offers("216", "airtime")).map((o) => o.variationCode)).toEqual(["5028"]);
+    expect(calls).toBe(2);
+    await cat.offers("216", "airtime");
+    expect(calls).toBe(2); // cached
+  });
+
+  it("never caches an empty reply, so the next request asks VTpass again", async () => {
+    let calls = 0;
+    const cat = new IntlCatalog("https://vtpass.com", (async () => {
+      calls++;
+      return new Response(JSON.stringify(empty), { status: 200 });
+    }) as typeof fetch, 3_600_000, Date.now, 1);
+    expect(await cat.offers("216", "airtime")).toEqual([]);
+    expect(calls).toBe(3); // first try + 2 retries
+    await cat.offers("216", "airtime");
+    expect(calls).toBe(6);
+  });
+});
+
+describe("IntlCatalog last-known-good fallback", () => {
+  const good = { response_description: "000", content: { currency: "XOF", variations: [{ variation_code: "5028", name: "Enter flexible amount", fixedPrice: "No", variation_amount_min: 100, variation_amount_max: 73811, variation_rate: 2.7096, charged_currency: "NGN" }] } };
+  const empty = { response_description: "000", content: { currency: null, variations: [] } };
+  const path = "/api/service-variations?serviceID=foreign-airtime&operator_id=216&product_type_id=1";
+  const fetchSeq = (replies: unknown[]) =>
+    (async () => new Response(JSON.stringify(replies.shift() ?? empty), { status: 200 })) as typeof fetch;
+
+  it("serves the last real reply when VTpass later hides the product (cache expired)", async () => {
+    const cat = new IntlCatalog("https://vtpass.com", fetchSeq([good]), 0, Date.now, 1);
+    expect(await cat.offers("216", "airtime")).toHaveLength(1);
+    expect((await cat.offers("216", "airtime"))[0]?.maxLocal).toBe(73811); // live now empty x3 -> last good
+  });
+
+  it("falls back to the committed snapshot right after a restart", async () => {
+    const cat = new IntlCatalog("https://vtpass.com", fetchSeq([]), 0, Date.now, 1, { [path]: good });
+    expect((await cat.offers("216", "airtime")).map((o) => o.variationCode)).toEqual(["5028"]);
+  });
+
+  it("prefers fresh live data over the snapshot", async () => {
+    const fresher = { ...good, content: { ...good.content, variations: [{ ...good.content.variations[0], variation_amount_max: 80000 }] } };
+    const cat = new IntlCatalog("https://vtpass.com", fetchSeq([fresher]), 0, Date.now, 1, { [path]: good });
+    expect((await cat.offers("216", "airtime"))[0]?.maxLocal).toBe(80000);
+  });
+});
