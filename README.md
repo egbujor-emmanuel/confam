@@ -49,6 +49,27 @@ so the locked amount always covers the purchase.
 
 ---
 
+## Constraints
+
+- **It runs in test mode.** Payments use test sats from a Lightning test wallet
+  (`faucet.nwc.dev`) and the providers' sandboxes (VTpass, DEXPAY). The API calls, hold invoices,
+  delivery checks and signed receipts are the same ones that would run with real money, but **no real
+  airtime, data or electricity token reaches a phone**, and a real Lightning wallet cannot pay the
+  test invoices (the test wallet is not a node on the public Lightning network).
+- **Sandbox outcomes are set by the providers.** VTpass: for Nigerian numbers only `08011111111`
+  succeeds and `201000000000` stays pending; international numbers succeed. DEXPAY accepts any
+  Woyofal meter and returns a test token.
+- **Going live is configuration, not code:** a live VTpass account with API access and a funded naira
+  wallet, a mainnet Lightning node that issues hold invoices over Nostr Wallet Connect (Alby Hub
+  implements `make_hold_invoice`, `settle_hold_invoice` and `cancel_hold_invoice`), and DEXPAY
+  production approval for Senegal electricity.
+- **Designed for 3G and mid-range phones:** about 90 KB of JavaScript on first load (gzipped); the 3D
+  lock loads after the page and falls back to a still image on 2G, data-saver or low-memory phones.
+- **Every payment waits for the provider:** a purchase settles only on the provider's confirmation and
+  is released if none arrives within 90 seconds.
+
+---
+
 ## How the guarantee works
 
 ```mermaid
