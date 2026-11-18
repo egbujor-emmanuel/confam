@@ -8,7 +8,9 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    buildCommand: npm ci --no-audit --no-fund && npm run build -w web
+    # NODE_ENV=production is set for the service and applies to the build too, so the dev tools the
+    # build needs (TypeScript, Vite, tsx) must be installed explicitly.
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build -w web
     # tsx runs the server directly (not through npm) so it receives SIGTERM and makes a final backup push.
     startCommand: cd server && ../node_modules/.bin/tsx src/server.ts
     healthCheckPath: /api/health
