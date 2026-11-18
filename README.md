@@ -22,16 +22,21 @@ Everything runs on test networks: test sats and provider sandboxes.
    *Payment locked → Buying it for you → Provider confirmed delivery → Payment completed*.
 4. At the end you get a **signed receipt** that your browser verifies on the spot (Nostr signature).
 
-| Try this | Country | What to enter | What happens |
-|---|---|---|---|
-| Airtime, success | 🇸🇳 Senegal (or any of 19 countries) | Your own number, network **Orange**, 1,000 XOF | Delivered, then paid |
-| Electricity token | 🇸🇳 Senegal | Woyofal meter: **any number** (sandbox) | Token on screen, then paid |
-| Electricity token | 🇳🇬 Nigeria | Ikeja Electric, prepaid meter **1111111111111** | Token on screen, then paid |
-| **Delivery fails** | 🇳🇬 Nigeria | MTN airtime to **08022222222** | *It didn't go through. You were not charged.* |
-| **Provider never confirms** | any | Phone **201000000000** | Lock opens at the 90 s deadline, sats back |
+### Test numbers, by country
 
-Sandbox numbers are VTpass's documented test numbers (`08011111111` succeeds, `201000000000` stays
-pending, any other Nigerian number fails). The DEXPAY sandbox accepts any meter and returns a test token.
+✅ delivered, then paid · ⏳ stays pending, then the lock opens at 90 s and the sats come back ·
+❌ fails, the lock opens at once and the sats come back
+
+| Country | Airtime | Data | Electricity |
+|---|---|---|---|
+| 🇳🇬 Nigeria | `08011111111` ✅ · `201000000000` ⏳ · any other number ❌ | same numbers as airtime | Ikeja Electric, prepaid meter `1111111111111` ✅ |
+| 🇸🇳 Senegal | any number ✅ · `201000000000` ⏳ | any number ✅ · `201000000000` ⏳ | Woyofal (Senelec): any meter number ✅ (test token) |
+| 🇨🇮 Côte d'Ivoire · 🇬🇭 Ghana · 🇲🇱 Mali · 🇧🇫 Burkina Faso · 🇧🇯 Benin · 🇹🇬 Togo · 🇬🇳 Guinea · 🇺🇬 Uganda · 🇿🇦 South Africa · 🇿🇲 Zambia · 🇲🇼 Malawi | any number ✅ · `201000000000` ⏳ | any number ✅ · `201000000000` ⏳ | not offered |
+| 🇰🇪 Kenya · 🇨🇲 Cameroon · 🇹🇿 Tanzania · 🇷🇼 Rwanda · 🇪🇹 Ethiopia · 🇲🇿 Mozambique | any number ✅ · `201000000000` ⏳ | not offered (the provider sells no bundles there) | not offered |
+
+These are the providers' sandbox rules: VTpass (`08011111111` succeeds and `201000000000` stays
+pending; other Nigerian numbers fail; international numbers succeed) and DEXPAY (any Woyofal meter
+returns a test token). No real airtime, data or token is delivered in test mode.
 
 ---
 
