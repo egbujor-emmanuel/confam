@@ -46,7 +46,7 @@ returns a test token). No real airtime, data or token is delivered in test mode.
 | Service | Countries | Provider |
 |---|---|---|
 | Airtime | 19: Senegal, Nigeria, Côte d'Ivoire, Ghana, Kenya, Cameroon, Mali, Burkina Faso, Benin, Togo, Guinea, Uganda, Tanzania, Rwanda, South Africa, Zambia, Ethiopia, Malawi, Mozambique | VTpass (international airtime API) |
-| Data bundles | Senegal, Nigeria, Côte d'Ivoire, Ghana, Mali, Burkina Faso, Benin, Togo (where the provider sells bundles) | VTpass |
+| Data bundles | 13: Senegal, Nigeria, Côte d'Ivoire, Ghana, Mali, Burkina Faso, Benin, Togo, Guinea, Uganda, South Africa, Zambia, Malawi (where the provider sells bundles) | VTpass |
 | Electricity | 🇳🇬 Nigeria (12 distribution companies), 🇸🇳 Senegal (Senelec **Woyofal** prepaid) | VTpass, **DEXPAY** (Dakar) |
 
 Networks and price ranges per country come from the provider's live catalogue, in local currency

@@ -52,7 +52,7 @@ async function main() {
   }
 
   // Pass provider keys through the environment for non-interactive setup.
-  for (const key of ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY"]) {
+  for (const key of ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY", "DEXPAY_PUBLIC_KEY", "DEXPAY_SECRET_KEY"]) {
     if (!env.get(key) && process.env[key]) text = setVar(text, key, process.env[key]);
   }
 
@@ -79,7 +79,10 @@ async function main() {
         `(set "API Authentication Type" to "API Keys"), then Account Settings > Whitelist Products.`,
     );
   }
-  say("Start Confam with:  npm start   (then open http://localhost:8787)");
+  if (!final.get("DEXPAY_SECRET_KEY")) {
+    say("Optional, for Senegal electricity: add DEXPAY sandbox keys (DEXPAY_PUBLIC_KEY, DEXPAY_SECRET_KEY) from https://portal.dexpay.africa.");
+  }
+  if (!process.argv.includes("--then-start")) say("Start Confam with:  npm start   (then open http://localhost:8787)");
 }
 
 main().catch((err) => {
