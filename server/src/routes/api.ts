@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { atAirtimeLimits } from "../africastalking/coverage.ts";
 import type { Config } from "../config.ts";
 import { COUNTRIES, findCountry, toInternational } from "../countries.ts";
 import { AppError } from "../errors.ts";
@@ -9,6 +10,7 @@ import type { OrderStore } from "../orders/store.ts";
 import type { Category } from "../orders/types.ts";
 import { toPublicOrder } from "../orders/view.ts";
 import { localToSats, type RateService } from "../pricing/rates.ts";
+import type { AtStatusInbox } from "../providers/africastalking.ts";
 import type { ReceiptSigner } from "../receipts/sign.ts";
 import type { ReloadlyCatalog } from "../reloadly/catalog.ts";
 import type { Catalog } from "../vtpass/catalog.ts";
@@ -21,6 +23,8 @@ export interface ApiDeps {
   kick: (orderId: string) => void;
   catalog: Catalog;
   reloadly: ReloadlyCatalog | null;
+  /** Receives Africa's Talking airtime status callbacks (null when AT is not configured). */
+  atInbox?: AtStatusInbox | null;
   rates: Pick<RateService, "current">;
   signer: ReceiptSigner;
   ln: HoldInvoiceProvider;
@@ -56,31 +60,73 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     providers: {
       vtpass: { configured: cfg.vtpassConfigured, sandbox: cfg.vtpassIsSandbox },
       reloadly: { configured: cfg.reloadlyConfigured, sandbox: cfg.reloadlyIsSandbox },
+      africastalking: { configured: cfg.atConfigured, sandbox: cfg.atIsSandbox },
     },
     limits: { minNgn: cfg.MIN_ORDER_NGN, maxNgn: cfg.MAX_ORDER_NGN, maxSats: cfg.MAX_ORDER_SATS, vendDeadlineSec: cfg.VEND_DEADLINE_SEC },
     testWallet: cfg.TEST_WALLET_FAUCET ? { enabled: true, balanceSats: cfg.TEST_WALLET_BALANCE_SATS } : { enabled: false },
     receipts: { npub: deps.signer.npub, pubkey: deps.signer.pubkeyHex },
   }));
 
-  app.get("/api/countries", async () => ({
-    countries: COUNTRIES.map((c) => ({
+  app.get("/api/countries", async () => {
+    const all = COUNTRIES.map((c) => ({
       ...c,
       services: Object.fromEntries(CATEGORIES.map((cat) => [cat, deps.orders.route(c, cat)])),
-    })),
-  }));
+    }));
+    // Only list countries we can actually serve; with no provider configured, list all so the UI still renders.
+    const served = all.filter((c) => Object.values(c.services).some(Boolean));
+    return { countries: served.length > 0 ? served : all };
+  });
 
-  // Reloadly: detect the mobile network for a number (airtime outside Nigeria).
+  // Mobile network for a number (airtime outside Nigeria). Africa's Talking routes by number itself,
+  // so for its countries the "operator" is the country's airtime range across every network.
   app.get<{ Querystring: { country?: string; phone?: string } }>(
     "/api/operators/detect",
     { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     async (req) => {
-      if (!deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
       const country = requireCountry(parse(isoSchema, req.query.country));
       const intl = toInternational(parse(z.string().min(6).max(20), req.query.phone), country);
       if (!intl) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
+      const provider = deps.orders.route(country, "airtime");
+      const at = atAirtimeLimits(country.iso);
+      if (provider === "africastalking" && at) {
+        return {
+          operator: {
+            operatorId: "0",
+            name: "All networks",
+            isAutoNetwork: true,
+            currency: at.currency,
+            minAmount: at.min,
+            maxAmount: at.max,
+            fixedAmounts: [],
+            suggestedAmounts: at.suggested,
+            logo: null,
+            isData: false,
+          },
+        };
+      }
+      if (provider !== "reloadly" || !deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");
       return { operator: await deps.reloadly.detect(intl, country.iso) };
     },
   );
+
+  // Africa's Talking airtime status callback. AT does not sign callbacks, so the URL carries a secret
+  // token; a recorded status is only used when AT's own status query cannot answer.
+  if (deps.atInbox && cfg.AT_CALLBACK_TOKEN) {
+    const inbox = deps.atInbox;
+    const token = cfg.AT_CALLBACK_TOKEN;
+    app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_req, body, done) => {
+      done(null, Object.fromEntries(new URLSearchParams(String(body))));
+    });
+    app.post<{ Params: { token: string } }>("/api/webhooks/africastalking/airtime/:token", async (req, reply) => {
+      if (req.params.token !== token) throw new AppError(404, "not_found", "Not found.");
+      const body = parse(
+        z.object({ requestId: z.string().regex(/^[\w-]{4,80}$/), status: z.enum(["Success", "Failed"]) }).passthrough(),
+        req.body,
+      );
+      inbox.record(body.requestId, body.status);
+      return reply.code(200).send({ ok: true });
+    });
+  }
 
   app.get<{ Querystring: { country?: string } }>("/api/data-plans", async (req) => {
     if (!deps.reloadly) throw new AppError(503, "provider_unconfigured", "This service is not available yet.");

@@ -56,7 +56,7 @@ export function App() {
       ? "…"
       : `${new Intl.NumberFormat(lang, { notation: "compact", maximumFractionDigits: 1 }).format(wallet.balance)} sats`
     : t.connectWallet;
-  const anySandbox = config ? config.providers.reloadly.sandbox || config.providers.vtpass.sandbox : false;
+  const anySandbox = config ? Object.values(config.providers).some((p) => p.configured && p.sandbox) : false;
 
   return (
     <LangContext.Provider value={langValue}>

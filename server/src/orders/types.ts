@@ -1,3 +1,5 @@
+import type { ProviderId } from "../providers/types.ts";
+
 export type Category = "airtime" | "data" | "electricity";
 
 /**
@@ -20,7 +22,7 @@ export interface Order {
   updatedAt: number;
   state: OrderState;
   category: Category;
-  provider: "vtpass" | "reloadly";
+  provider: ProviderId;
   countryCode: string;
   currency: string;
   /** Provider service id (VTpass serviceID) or a label for Reloadly operators. */

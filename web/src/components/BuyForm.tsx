@@ -33,7 +33,7 @@ export function BuyForm({ category, config, countries, country, onCountry }: Pro
         <p className="muted">…</p>
       ) : provider === "vtpass" ? (
         <VtpassForm key={`${country.iso}-${category}`} category={category} sandbox={config?.providers.vtpass.sandbox ?? false} />
-      ) : provider === "reloadly" && category !== "electricity" ? (
+      ) : (provider === "reloadly" || provider === "africastalking") && category !== "electricity" ? (
         <ReloadlyForm key={`${country.iso}-${category}`} country={country} category={category} />
       ) : (
         <p className="notice warn">{t.notAvailableHere}</p>

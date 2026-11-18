@@ -10,7 +10,7 @@ type Props = {
   category: "airtime" | "data";
 };
 
-/** Airtime & data anywhere in Africa (Reloadly): the network is detected from the number. */
+/** Airtime & data anywhere in Africa (Africa's Talking or Reloadly): the network comes from the number. */
 export function ReloadlyForm({ country, category }: Props) {
   const { lang, t } = useT();
   const [phone, setPhone] = useState("");
@@ -105,7 +105,7 @@ export function ReloadlyForm({ country, category }: Props) {
         </div>
         {category === "airtime" && (
           <span className="hint" aria-live="polite">
-            {isDetecting ? t.detecting : operator ? `${t.network}: ${operator.name}` : " "}
+            {isDetecting ? t.detecting : operator ? (operator.isAutoNetwork ? t.anyNetwork : `${t.network}: ${operator.name}`) : " "}
           </span>
         )}
       </div>

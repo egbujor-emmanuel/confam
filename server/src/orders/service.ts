@@ -4,6 +4,8 @@ import { findCountry, toInternational, type Country } from "../countries.ts";
 import { AppError } from "../errors.ts";
 import { newPreimagePair, type HoldInvoiceProvider } from "../lightning/index.ts";
 import { localToSats, type RateService } from "../pricing/rates.ts";
+import { atAirtimeLimits } from "../africastalking/coverage.ts";
+import type { ProviderId } from "../providers/types.ts";
 import type { ReloadlyCatalog } from "../reloadly/catalog.ts";
 import { maskId, maskName } from "../util/mask.ts";
 import { acceptPhone } from "../util/phone.ts";
@@ -61,6 +63,8 @@ export interface OrderServiceDeps {
   vtpass: Pick<VtpassClient, "verifyMerchant"> | null;
   vtpassCatalog: Catalog;
   reloadly: ReloadlyCatalog | null;
+  /** Africa's Talking airtime is configured (no catalogue needed: AT routes by number). */
+  africastalking?: boolean;
   rates: Pick<RateService, "current">;
   limits: { minNgn: number; maxNgn: number; maxSats: number; feeBps: number; invoiceExpirySec: number };
   vtpassSandbox: boolean;
@@ -95,10 +99,14 @@ export class OrderService {
     this.now = deps.now ?? Date.now;
   }
 
-  /** Which provider serves (country, category)? Nigeria prefers VTpass; everywhere else uses Reloadly. */
-  route(country: Country, category: Category): "vtpass" | "reloadly" | null {
+  /**
+   * Which provider serves (country, category)? Nigeria prefers VTpass (it also sells data and electricity);
+   * airtime elsewhere goes to Africa's Talking where it covers the country, then Reloadly.
+   */
+  route(country: Country, category: Category): ProviderId | null {
     if (country.iso === "NG" && this.deps.vtpass) return "vtpass";
     if (category === "electricity") return null; // electricity: Nigeria via VTpass for now
+    if (category === "airtime" && this.deps.africastalking && atAirtimeLimits(country.iso)) return "africastalking";
     return this.deps.reloadly ? "reloadly" : null;
   }
 
@@ -134,7 +142,12 @@ export class OrderService {
     const provider = this.route(country, input.category);
     if (!provider) throw new AppError(503, "provider_unconfigured", "This service is not available in that country yet.");
 
-    const product = provider === "vtpass" ? await this.vtpassProduct(input, country) : await this.reloadlyProduct(input, country);
+    const product =
+      provider === "vtpass"
+        ? await this.vtpassProduct(input, country)
+        : provider === "africastalking"
+          ? this.atAirtimeProduct(input, country)
+          : await this.reloadlyProduct(input, country);
 
     const rate = await this.deps.rates.current(product.currency).catch(() => {
       throw new AppError(503, "no_rate", "Bitcoin price is unavailable right now. Try again in a minute.");
@@ -167,6 +180,33 @@ export class OrderService {
       },
       nowMs,
     );
+  }
+
+  private atAirtimeProduct(input: CreateOrderInput, country: Country): Product {
+    const limits = atAirtimeLimits(country.iso);
+    if (input.category !== "airtime" || !limits) throw new AppError(400, "unsupported", "Only airtime is available in that country yet.");
+    const intl = toInternational(input.phone, country);
+    if (!intl) throw new AppError(400, "bad_phone", `Enter a valid ${country.name} phone number.`);
+    const amountLocal = input.amountLocal;
+    if (amountLocal < limits.min || amountLocal > limits.max) {
+      throw new AppError(400, "bad_amount", `Choose ${fmt(limits.min, limits.currency)} to ${fmt(limits.max, limits.currency)}.`);
+    }
+    return {
+      category: "airtime",
+      provider: "africastalking",
+      countryCode: country.iso,
+      currency: limits.currency,
+      serviceId: `at-airtime-${country.iso.toLowerCase()}`,
+      operatorId: null,
+      variationCode: null,
+      productLabel: `${fmt(amountLocal, limits.currency)} airtime`,
+      amountLocal,
+      billersCode: null,
+      phone: intl,
+      recipientMasked: `+${maskId(intl)}`,
+      meterType: null,
+      customerName: null,
+    };
   }
 
   private async reloadlyProduct(input: CreateOrderInput, country: Country): Promise<Product> {

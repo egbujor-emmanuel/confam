@@ -1,6 +1,6 @@
 export type Category = "airtime" | "data" | "electricity";
 export type OrderState = "awaiting_payment" | "locked" | "vending" | "delivered" | "completed" | "released" | "expired";
-export type ProviderId = "vtpass" | "reloadly";
+export type ProviderId = "vtpass" | "reloadly" | "africastalking";
 
 export interface AppConfig {
   lightning: { backend: string; network: string };
@@ -44,6 +44,8 @@ export interface OperatorInfo {
   suggestedAmounts: number[];
   logo: string | null;
   isData: boolean;
+  /** The provider routes by number itself (Africa's Talking): no single network to show. */
+  isAutoNetwork?: boolean;
 }
 
 export interface DataPlan {

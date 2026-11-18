@@ -7,6 +7,7 @@ import { buildApp } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { OrderService } from "../src/orders/service.ts";
 import { OrderStore } from "../src/orders/store.ts";
+import { AtStatusInbox } from "../src/providers/africastalking.ts";
 import { ReceiptSigner } from "../src/receipts/sign.ts";
 import { ReloadlyCatalog } from "../src/reloadly/catalog.ts";
 import type { ReloadlyOperator } from "../src/reloadly/client.ts";
@@ -277,5 +278,93 @@ describe("API: static app & headers", () => {
     const res = await app.inject({ method: "GET", url: "/api/health" });
     expect(res.headers["content-security-policy"]).toContain("default-src 'self'");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+});
+
+describe("API: Africa's Talking airtime", () => {
+  const atCfg = loadConfig({
+    NODE_ENV: "test",
+    MERCHANT_NWC_URL: "nostr+walletconnect://abc?relay=wss://r.example&secret=00",
+    NOSTR_SECRET_KEY_HEX: "11".repeat(32),
+    VTPASS_API_KEY: "k",
+    VTPASS_PUBLIC_KEY: "PK_x",
+    VTPASS_SECRET_KEY: "SK_x",
+    AT_USERNAME: "sandbox",
+    AT_API_KEY: "atkey",
+    AT_CALLBACK_TOKEN: "t".repeat(32),
+    TEST_WALLET_FAUCET: "false",
+  });
+  let atApp: FastifyInstance;
+  let inbox: AtStatusInbox;
+
+  beforeEach(async () => {
+    inbox = new AtStatusInbox();
+    const orders = new OrderService({
+      store,
+      ln,
+      vtpass: { verifyMerchant: async () => ({}) },
+      vtpassCatalog: new Catalog(vtpassCatalog),
+      reloadly: null,
+      africastalking: true,
+      rates,
+      vtpassSandbox: true,
+      limits,
+    });
+    atApp = await buildApp(
+      { cfg: atCfg, store, orders, kick: (id: string) => kicked.push(id), catalog: new Catalog(vtpassCatalog), reloadly: null, atInbox: inbox, rates, signer: new ReceiptSigner(atCfg.NOSTR_SECRET_KEY_HEX), ln },
+      { webDistDir: "/nonexistent" },
+    );
+  });
+  afterEach(async () => {
+    await atApp.close();
+  });
+
+  it("routes airtime outside Nigeria to Africa's Talking and lists only served countries", async () => {
+    const res = await atApp.inject({ method: "GET", url: "/api/countries" });
+    const countries = res.json().countries as { iso: string; services: Record<string, string | null> }[];
+    const sn = countries.find((c) => c.iso === "SN");
+    expect(sn?.services).toEqual({ airtime: "africastalking", data: null, electricity: null });
+    expect(countries.find((c) => c.iso === "NG")?.services.airtime).toBe("vtpass");
+    expect(countries.some((c) => c.iso === "ML")).toBe(false); // not covered by AT, no Reloadly
+    expect(countries.some((c) => c.iso === "ET")).toBe(true);
+    expect(res.body).not.toContain("atkey");
+  });
+
+  it("describes the country's airtime range across every network", async () => {
+    const res = await atApp.inject({ method: "GET", url: "/api/operators/detect?country=SN&phone=771234567" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().operator).toMatchObject({ isAutoNetwork: true, currency: "XOF", minAmount: 500, maxAmount: 60000, fixedAmounts: [] });
+  });
+
+  it("creates a Senegal airtime order via Africa's Talking within AT's limits", async () => {
+    const res = await atApp.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "77 123 45 67", amountLocal: 1000, operatorId: "0" } });
+    expect(res.statusCode).toBe(201);
+    const order = store.get(res.json().id);
+    expect(order?.provider).toBe("africastalking");
+    expect(order?.currency).toBe("XOF");
+    expect(order?.phone).toBe("221771234567");
+    const low = await atApp.inject({ method: "POST", url: "/api/orders", payload: { category: "airtime", countryCode: "SN", phone: "771234567", amountLocal: 100 } });
+    expect(low.statusCode).toBe(400);
+    expect(low.json().error.code).toBe("bad_amount");
+  });
+
+  it("accepts the airtime status callback only with the secret token, as JSON or form data", async () => {
+    const url = `/api/webhooks/africastalking/airtime/${"t".repeat(32)}`;
+    const wrong = await atApp.inject({ method: "POST", url: "/api/webhooks/africastalking/airtime/nope", payload: { requestId: "ATQid_1", status: "Success" } });
+    expect(wrong.statusCode).toBe(404);
+    expect(inbox.get("ATQid_1")).toBeNull();
+    const json = await atApp.inject({ method: "POST", url, payload: { requestId: "ATQid_1", status: "Success", phoneNumber: "+221771234567" } });
+    expect(json.statusCode).toBe(200);
+    expect(inbox.get("ATQid_1")).toBe("Success");
+    const form = await atApp.inject({
+      method: "POST",
+      url,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: "requestId=ATQid_2&status=Failed",
+    });
+    expect(form.statusCode).toBe(200);
+    expect(inbox.get("ATQid_2")).toBe("Failed");
+    const junk = await atApp.inject({ method: "POST", url, payload: { requestId: "ATQid_3", status: "Delivered?" } });
+    expect(junk.statusCode).toBe(400);
   });
 });

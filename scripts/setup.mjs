@@ -50,9 +50,13 @@ async function main() {
     text = setVar(text, "NOSTR_SECRET_KEY_HEX", randomBytes(32).toString("hex"));
     say("Generated a receipt-signing key.");
   }
+  if (!env.get("AT_CALLBACK_TOKEN")) {
+    text = setVar(text, "AT_CALLBACK_TOKEN", randomBytes(24).toString("base64url"));
+    say("Generated the Africa's Talking callback token.");
+  }
 
   // Pass provider keys through the environment for non-interactive setup.
-  for (const key of ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY", "RELOADLY_CLIENT_ID", "RELOADLY_CLIENT_SECRET"]) {
+  for (const key of ["VTPASS_API_KEY", "VTPASS_PUBLIC_KEY", "VTPASS_SECRET_KEY", "AT_USERNAME", "AT_API_KEY", "RELOADLY_CLIENT_ID", "RELOADLY_CLIENT_SECRET"]) {
     if (!env.get(key) && process.env[key]) text = setVar(text, key, process.env[key]);
   }
 

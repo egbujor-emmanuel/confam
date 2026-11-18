@@ -25,6 +25,9 @@ export const COUNTRIES: readonly Country[] = [
   { iso: "RW", name: "Rwanda", nameFr: "Rwanda", dial: "250", currency: "RWF", flag: "🇷🇼" },
   { iso: "ZA", name: "South Africa", nameFr: "Afrique du Sud", dial: "27", currency: "ZAR", flag: "🇿🇦" },
   { iso: "ZM", name: "Zambia", nameFr: "Zambie", dial: "260", currency: "ZMW", flag: "🇿🇲" },
+  { iso: "ET", name: "Ethiopia", nameFr: "Éthiopie", dial: "251", currency: "ETB", flag: "🇪🇹" },
+  { iso: "MW", name: "Malawi", nameFr: "Malawi", dial: "265", currency: "MWK", flag: "🇲🇼" },
+  { iso: "MZ", name: "Mozambique", nameFr: "Mozambique", dial: "258", currency: "MZN", flag: "🇲🇿" },
 ];
 
 const BY_ISO = new Map(COUNTRIES.map((c) => [c.iso, c]));

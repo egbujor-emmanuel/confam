@@ -5,6 +5,8 @@ import { OrderEngine } from "./orders/engine.ts";
 import { OrderService } from "./orders/service.ts";
 import { OrderStore } from "./orders/store.ts";
 import { RateService } from "./pricing/rates.ts";
+import { AtClient } from "./africastalking/client.ts";
+import { AfricasTalkingProvider, AtStatusInbox } from "./providers/africastalking.ts";
 import { ReloadlyProvider } from "./providers/reloadly.ts";
 import type { ProviderRegistry } from "./providers/types.ts";
 import { VtpassProvider } from "./providers/vtpass.ts";
@@ -35,7 +37,11 @@ async function main(): Promise<void> {
       })
     : null;
 
+  const atClient = cfg.atConfigured ? new AtClient({ username: cfg.AT_USERNAME as string, apiKey: cfg.AT_API_KEY as string }) : null;
+  const atInbox = atClient ? new AtStatusInbox() : null;
+
   const providers: ProviderRegistry = {};
+  if (atClient && atInbox) providers.africastalking = new AfricasTalkingProvider(atClient, atInbox);
   if (vtpass) providers.vtpass = new VtpassProvider(vtpass);
   if (reloadlyClient) providers.reloadly = new ReloadlyProvider(reloadlyClient);
 
@@ -49,6 +55,7 @@ async function main(): Promise<void> {
     vtpass,
     vtpassCatalog: catalog,
     reloadly,
+    africastalking: Boolean(atClient),
     rates,
     vtpassSandbox: cfg.vtpassIsSandbox,
     limits: {
@@ -63,7 +70,7 @@ async function main(): Promise<void> {
   // The engine logs through Fastify's (redacting) logger, so it is created right after the app.
   let engine: OrderEngine | null = null;
   const app = await buildApp(
-    { cfg, store, orders, kick: (id) => void engine?.process(id), catalog, reloadly, rates, signer, ln },
+    { cfg, store, orders, kick: (id) => void engine?.process(id), catalog, reloadly, atInbox, rates, signer, ln },
     { logger: true },
   );
   engine = new OrderEngine({

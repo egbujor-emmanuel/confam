@@ -34,6 +34,12 @@ const EnvSchema = z
     RELOADLY_CLIENT_ID: z.string().min(1).optional(),
     RELOADLY_CLIENT_SECRET: z.string().min(1).optional(),
 
+    // Africa's Talking airtime across Africa. Username "sandbox" uses the free sandbox.
+    AT_USERNAME: z.string().min(1).optional(),
+    AT_API_KEY: z.string().min(1).optional(),
+    /** Secret path segment for the airtime status callback URL (AT does not sign callbacks). */
+    AT_CALLBACK_TOKEN: z.string().regex(/^[A-Za-z0-9_-]{24,}$/).optional(),
+
     // Signs delivery receipts (Nostr event signatures).
     NOSTR_SECRET_KEY_HEX: z.string().regex(/^[0-9a-fA-F]{64}$/),
 
@@ -72,6 +78,8 @@ export type Config = z.infer<typeof EnvSchema> & {
   vtpassIsSandbox: boolean;
   reloadlyConfigured: boolean;
   reloadlyIsSandbox: boolean;
+  atConfigured: boolean;
+  atIsSandbox: boolean;
   corsOrigins: string[];
 };
 
@@ -90,6 +98,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     vtpassIsSandbox: new URL(cfg.VTPASS_BASE_URL).hostname.startsWith("sandbox."),
     reloadlyConfigured: Boolean(cfg.RELOADLY_CLIENT_ID && cfg.RELOADLY_CLIENT_SECRET),
     reloadlyIsSandbox: new URL(cfg.RELOADLY_BASE_URL).hostname.includes("sandbox"),
+    atConfigured: Boolean(cfg.AT_USERNAME && cfg.AT_API_KEY),
+    atIsSandbox: cfg.AT_USERNAME === "sandbox",
     corsOrigins: cfg.CORS_ORIGINS.split(",")
       .map((s) => s.trim())
       .filter(Boolean),
