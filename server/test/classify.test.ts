@@ -55,9 +55,11 @@ describe("classifyVtpass", () => {
     expect(classifyVtpass({}).outcome).toBe("pending");
   });
 
-  it("only trusts requery code 015 (request not found) after a grace period", () => {
+  it("never treats requery code 015 (request not found) as a failure; the deadline releases it", () => {
+    // A lagging or replicated provider can say "not found" for a request it later delivers.
     expect(classifyVtpass({ code: "015" }, { secondsSincePay: 5 }).outcome).toBe("pending");
-    expect(classifyVtpass({ code: "015" }, { secondsSincePay: 25 }).outcome).toBe("failed");
+    expect(classifyVtpass({ code: "015" }, { secondsSincePay: 25 }).outcome).toBe("pending");
+    expect(classifyVtpass({ code: "015" }, { secondsSincePay: 600 }).outcome).toBe("pending");
   });
 
   it("accepts numeric codes defensively", () => {

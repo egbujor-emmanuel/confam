@@ -4,7 +4,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { AppError } from "./errors.ts";
 import { registerApi, type ApiDeps } from "./routes/api.ts";
 
@@ -16,7 +16,9 @@ export interface AppOptions {
 /** Builds the HTTP app. Kept separate from server.ts so tests can use app.inject(). */
 export async function buildApp(deps: ApiDeps, opts: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
-    trustProxy: true,
+    // Exactly one proxy hop (Render's load balancer): the client IP for rate limits is the address it
+    // saw, not a spoofable X-Forwarded-For entry.
+    trustProxy: (_address: string, hop: number) => hop < 1,
     bodyLimit: 16 * 1024,
     logger: opts.logger
       ? {
@@ -45,7 +47,7 @@ export async function buildApp(deps: ApiDeps, opts: AppOptions = {}): Promise<Fa
     crossOriginEmbedderPolicy: false,
   });
   await app.register(cors, { origin: deps.cfg.NODE_ENV === "production" ? false : deps.cfg.corsOrigins });
-  await app.register(rateLimit, { global: true, max: 120, timeWindow: "1 minute" });
+  await app.register(rateLimit, { global: true, max: 120, timeWindow: "1 minute", keyGenerator: clientKey });
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) {
@@ -98,4 +100,16 @@ export function staticCacheControl(path: string, status: number): string {
   if (path.startsWith("/assets/")) return "public, max-age=31536000, immutable";
   if (FILE_LIKE.test(path) && !path.endsWith(".html")) return "public, max-age=86400";
   return "no-cache";
+}
+
+/**
+ * The address rate limits count against. Render sits behind Cloudflare, which overwrites
+ * CF-Connecting-IP with the real visitor address on every request, so it cannot be forged through
+ * Cloudflare. Without Cloudflare (local runs), the socket address. X-Forwarded-For is never used:
+ * a client can write anything into it.
+ */
+export function clientKey(req: FastifyRequest): string {
+  const cf = req.headers["cf-connecting-ip"];
+  if (req.headers["cf-ray"] && typeof cf === "string" && cf.length > 0 && cf.length <= 45) return cf;
+  return req.socket.remoteAddress ?? "unknown";
 }

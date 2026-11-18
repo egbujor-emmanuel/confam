@@ -3,6 +3,9 @@ type FetchLike = typeof fetch;
 /** Senegal bill codes (https://docs.dexpay.africa/en/guides/bill-payments). Confam sells Woyofal prepaid electricity. */
 export const WOYOFAL = "WOYOFAL_SN_BILL";
 
+/** A person is waiting on a meter lookup, so it gives up sooner than a payment call. */
+const INQUIRY_TIMEOUT_MS = 15_000;
+
 export type DexpayBillStatus = "initiated" | "processing" | "completed" | "failed" | "refunded" | (string & {});
 
 export interface DexpayBillPayment {
@@ -76,11 +79,15 @@ export class DexpayClient {
   }
 
   async inquiry(serviceCode: string, referenceClient: string): Promise<DexpayMeter> {
-    const body = (await this.request("POST", "/bill-payments/inquiry", { service_code: serviceCode, reference_client: referenceClient })) as {
-      reference_client?: string;
-      bills?: Record<string, unknown>[];
-    };
-    const bill = body.bills?.[0] ?? {};
+    const body = (await this.request(
+      "POST",
+      "/bill-payments/inquiry",
+      { service_code: serviceCode, reference_client: referenceClient },
+      {},
+      INQUIRY_TIMEOUT_MS,
+    )) as { reference_client?: string; bills?: Record<string, unknown>[] };
+    const bill = body.bills?.[0];
+    if (!bill) throw new DexpayApiError(404, "NO_BILL", "DEXPAY returned no bill for this meter");
     return {
       referenceClient: body.reference_client ?? referenceClient,
       customerName: str(bill.customer_name),
@@ -110,21 +117,27 @@ export class DexpayClient {
   }
 
   /** Recent payments for a service (newest first), used to recover a payment whose reply was lost. */
-  async listSince(serviceCode: string, fromIso: string): Promise<DexpayBillPayment[]> {
-    const q = new URLSearchParams({ service_code: serviceCode, from: fromIso, limit: "50", page: "1" });
+  async listSince(serviceCode: string, fromIso: string, page = 1): Promise<DexpayBillPayment[]> {
+    const q = new URLSearchParams({ service_code: serviceCode, from: fromIso, limit: "50", page: String(page) });
     const body = (await this.request("GET", `/bill-payments?${q}`)) as { data?: unknown } | unknown[];
     const list = Array.isArray(body) ? body : Array.isArray((body as { data?: unknown }).data) ? ((body as { data: unknown[] }).data) : [];
     return list.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null).map(toPayment);
   }
 
-  private async request(method: "GET" | "POST", path: string, body?: unknown, extra: Record<string, string> = {}): Promise<unknown> {
+  private async request(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    extra: Record<string, string> = {},
+    timeoutMs = this.timeoutMs,
+  ): Promise<unknown> {
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
         method,
         headers: { accept: "application/json", "x-api-secret": this.secretKey, ...(body === undefined ? {} : { "content-type": "application/json" }), ...extra },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       throw new DexpayNetworkError(err instanceof Error ? err.message : "DEXPAY unreachable");

@@ -120,6 +120,7 @@ describe("OrderEngine: failure paths never charge the customer", () => {
     expect(released.state).toBe("released");
     expect(released.releaseReason).toBe("delivery_unconfirmed");
     expect(released.reconState).toBe("watching");
+    expect(released.failureDetail).toContain("unclear response (code 099)"); // the provider's last word is kept
     expect(ln.invoices.get(order.paymentHash)?.state).toBe("canceled");
 
     // The provider later confirms: customer keeps it for free, operator absorbs the cost.
@@ -130,6 +131,30 @@ describe("OrderEngine: failure paths never charge the customer", () => {
     expect(late.state).toBe("released");
     expect(late.reconState).toBe("delivered_after_release");
     expect(late.token).toBe("2636 2054 4059 8275 7802");
+  });
+
+  it("survives a failing order store in the timer tick (no unhandled rejection)", async () => {
+    const { store, engine } = setup();
+    store.listByStates = () => {
+      throw new Error("database is locked");
+    };
+    await expect(engine.tick()).resolves.toBeUndefined();
+  });
+
+  it("raises an alert when a failure is about Confam's provider account, not the customer's order", async () => {
+    const errors: { obj: Record<string, unknown>; msg: string }[] = [];
+    const vt = new FakeVtpass([{ code: "018", response_description: "LOW WALLET BALANCE" }]);
+    const c = setup(vt);
+    const engine = new OrderEngine({
+      store: c.store, ln: c.ln, providers: { vtpass: new VtpassProvider(vt) }, signer: c.signer,
+      log: { info: () => {}, warn: () => {}, error: (obj: Record<string, unknown>, msg: string) => errors.push({ obj, msg }) },
+      cfg: { vendDeadlineSec: DEADLINE_SEC, tickMs: 1000 }, now: c.clock.now,
+    });
+    const order = await seedOrder(c.store, c.ln, c.clock.now());
+    c.ln.payerPays(order.paymentHash);
+    await engine.process(order.id);
+    expect(c.store.get(order.id)?.state).toBe("released");
+    expect(errors.some((e) => e.obj.alert === "provider_account" && e.obj.code === "018")).toBe(true);
   });
 
   it("treats a network error on /pay as pending and NEVER calls /pay again", async () => {
@@ -233,6 +258,24 @@ describe("OrderEngine: resilience", () => {
     expect(c.store.get(order.id)?.receiptJson).not.toBeNull();
     await c.engine.process(order.id);
     expect(c.store.get(order.id)?.state).toBe("completed");
+    expect(vt.payCalls).toHaveLength(1);
+  });
+
+  it("closes a delivered order whose lock was already canceled: released, delivered after release, no endless retry", async () => {
+    const vt = new FakeVtpass([DELIVERED_TOKEN]);
+    const c = setup(vt);
+    const order = await seedOrder(c.store, c.ln, c.clock.now(), { category: "electricity" });
+    c.ln.payerPays(order.paymentHash);
+    c.ln.failSettleTimes = 1;
+    await c.engine.process(order.id);
+    expect(c.store.get(order.id)?.state).toBe("delivered");
+    c.ln.invoices.get(order.paymentHash)!.state = "canceled"; // e.g. the hold expired at its CLTV limit
+    await c.engine.process(order.id);
+    const after = c.store.get(order.id)!;
+    expect(after.state).toBe("released");
+    expect(after.releaseReason).toBe("lock_lost");
+    expect(after.reconState).toBe("delivered_after_release");
+    expect(after.token).not.toBeNull(); // the customer still gets the token
     expect(vt.payCalls).toHaveLength(1);
   });
 

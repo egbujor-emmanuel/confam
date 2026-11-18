@@ -218,7 +218,9 @@ async function probeLightning(ln: Pick<HoldInvoiceProvider, "getStatus">): Promi
     await Promise.race([ln.getStatus(randomBytes(32).toString("hex")), timeout]);
     return { up: true, detail: "" };
   } catch (err) {
-    if (err instanceof LightningError && (err.code === "NOT_FOUND" || err.code === "REJECTED")) return { up: true, detail: "" };
+    // "Not found" for a random hash proves the wallet answered and can look invoices up. REJECTED
+    // (restricted / unauthorized / quota) means it answered but will not work for us: that is down.
+    if (err instanceof LightningError && err.code === "NOT_FOUND") return { up: true, detail: "" };
     return { up: false, detail: err instanceof Error ? err.message.slice(0, 120) : "unknown" };
   }
 }

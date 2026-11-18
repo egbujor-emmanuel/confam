@@ -111,6 +111,19 @@ describe("RemoteBackup", () => {
     expect((remote.db.prepare("SELECT COUNT(*) AS n FROM orders").get() as { n: number }).n).toBe(1);
   });
 
+  it("gives up on a hung remote call so later pushes still run", async () => {
+    const remote = sqliteRemote();
+    const a = new OrderStore(":memory:");
+    const backup = new RemoteBackup(a, remote, silent, 50);
+    await backup.init();
+    a.insert(newOrder("o1", "11".repeat(32), "r1"), 1000);
+    const realBatch = remote.batch.bind(remote);
+    remote.batch = () => new Promise<void>(() => {}); // never answers
+    expect(await backup.push()).toBe(0);
+    remote.batch = realBatch;
+    expect(await backup.push()).toBe(2);
+  });
+
   it("does not overwrite a surviving local disk on start", async () => {
     const remote = sqliteRemote();
     const a = new OrderStore(":memory:");

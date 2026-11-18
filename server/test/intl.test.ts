@@ -103,16 +103,26 @@ describe("IntlCatalog with VTpass's flaky empty replies", () => {
     expect(calls).toBe(2); // cached
   });
 
-  it("never caches an empty reply, so the next request asks VTpass again", async () => {
+  it("holds 'no products' for a never-seen network only briefly, so junk ids can't multiply calls to VTpass", async () => {
     let calls = 0;
+    let t = 1_000_000;
     const cat = new IntlCatalog("https://vtpass.com", (async () => {
       calls++;
       return new Response(JSON.stringify(empty), { status: 200 });
-    }) as typeof fetch, 3_600_000, Date.now, 1);
-    expect(await cat.offers("216", "airtime")).toEqual([]);
+    }) as typeof fetch, 3_600_000, () => t, 1);
+    expect(await cat.offers("99999999", "airtime")).toEqual([]);
     expect(calls).toBe(3); // first try + 2 retries
-    await cat.offers("216", "airtime");
-    expect(calls).toBe(6);
+    await cat.offers("99999999", "airtime");
+    expect(calls).toBe(3); // remembered for a minute
+    t += 61_000;
+    await cat.offers("99999999", "airtime");
+    expect(calls).toBe(6); // then VTpass is asked again
+  });
+
+  it("keeps the cache bounded", async () => {
+    const cat = new IntlCatalog("https://vtpass.com", (async () => new Response(JSON.stringify(variations), { status: 200 })) as typeof fetch, 3_600_000, Date.now, 1);
+    for (let i = 0; i < 1200; i++) await cat.offers(String(i), "airtime");
+    expect(cat.cacheSize).toBeLessThanOrEqual(1000);
   });
 });
 

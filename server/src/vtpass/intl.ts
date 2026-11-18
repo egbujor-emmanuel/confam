@@ -81,12 +81,27 @@ export function costNgn(offer: IntlOffer, amountLocal: number): number {
   return Math.ceil(offer.ngnPerUnit * amountLocal * 100) / 100;
 }
 
+const MAX_CACHE_ENTRIES = 1000;
+const EMPTY_HOLD_MS = 60_000;
+
+/** Map.set with a size cap: the oldest entry (insertion order) makes room. */
+function remember<V>(map: Map<string, V>, key: string, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_CACHE_ENTRIES) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
+
 /**
  * VTpass International Airtime/Data catalogue. These are public GET endpoints; `baseUrl` is
  * https://vtpass.com (real per-country catalogue) or https://sandbox.vtpass.com. Cached for an hour.
  */
 export class IntlCatalog {
   private readonly cache = new Map<string, { at: number; value: unknown }>();
+  /** "No products" replies for paths that never had data (e.g. a made-up operator id), held briefly. */
+  private readonly emptyUntil = new Map<string, { until: number; value: unknown }>();
   /**
    * Last reply that had data, per path, kept without expiry. Seeded from a committed snapshot of real
    * VTpass replies, so it also works right after a restart.
@@ -102,6 +117,11 @@ export class IntlCatalog {
     seed: Readonly<Record<string, unknown>> = {},
   ) {
     this.lastGood = new Map(Object.entries(seed));
+  }
+
+  /** Number of cached replies (bounded by MAX_CACHE_ENTRIES). */
+  get cacheSize(): number {
+    return this.cache.size;
   }
 
   /** ISO codes VTpass sells international airtime to. */
@@ -149,16 +169,22 @@ export class IntlCatalog {
   private async get(path: string, hasData: (value: unknown) => boolean): Promise<unknown> {
     const hit = this.cache.get(path);
     if (hit && this.now() - hit.at < this.ttlMs) return hit.value;
+    const noData = this.emptyUntil.get(path);
+    if (noData && this.now() < noData.until) return noData.value;
     let last: unknown = null;
     for (let attempt = 0; attempt < EMPTY_RETRIES + 1; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, this.retryDelayMs * attempt));
       last = await this.fetchOnce(path);
       if (hasData(last)) {
-        this.cache.set(path, { at: this.now(), value: last });
-        this.lastGood.set(path, last);
+        remember(this.cache, path, { at: this.now(), value: last });
+        if (this.lastGood.has(path) || this.lastGood.size < MAX_CACHE_ENTRIES) this.lastGood.set(path, last);
+        this.emptyUntil.delete(path);
         return last;
       }
     }
+    // Never had data: hold the empty answer for a minute, so repeated requests for a made-up id
+    // cannot turn into a stream of retried calls to VTpass. Real networks fall back to lastGood below.
+    if (!this.lastGood.has(path)) remember(this.emptyUntil, path, { until: this.now() + EMPTY_HOLD_MS, value: last });
     // VTpass sometimes hides a product for hours. Show the last real data instead of nothing: buying a
     // product that is really down simply fails, and Confam then releases the customer's sats.
     return this.lastGood.get(path) ?? last; // not cached, so the next request asks VTpass again

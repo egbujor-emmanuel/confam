@@ -48,15 +48,12 @@ const FAILED_CODES: Record<string, string> = {
 
 const FAILED_TX_STATUSES = new Set(["failed", "reversed", "refunded", "cancelled", "canceled"]);
 
-/** Grace period before a requery "015 invalid request id" is trusted to mean "never received". */
-export const REQUERY_NOT_FOUND_GRACE_SEC = 20;
-
 export interface ClassifyOptions {
-  /** Seconds since the /pay call was first attempted (used for code 015 on requery). */
+  /** Seconds since the /pay call was first attempted (kept for callers; 015 no longer depends on it). */
   secondsSincePay?: number;
 }
 
-export function classifyVtpass(body: unknown, opts: ClassifyOptions = {}): Classification {
+export function classifyVtpass(body: unknown, _opts: ClassifyOptions = {}): Classification {
   if (body === null || body === undefined || typeof body !== "object") {
     return { outcome: "pending", code: null, status: null, reason: "no response body" };
   }
@@ -72,10 +69,9 @@ export function classifyVtpass(body: unknown, opts: ClassifyOptions = {}): Class
   }
 
   if (code === "015") {
-    const age = opts.secondsSincePay ?? 0;
-    return age >= REQUERY_NOT_FOUND_GRACE_SEC
-      ? { outcome: "failed", code, status, reason: "provider never received the request" }
-      : { outcome: "pending", code, status, reason: "request not visible yet" };
+    // "Request id not found" on requery is not proof of non-delivery: a lagging provider can still
+    // deliver it. Keep the lock; the vend deadline releases it, and reconciliation keeps watching.
+    return { outcome: "pending", code, status, reason: "request not visible at the provider yet" };
   }
 
   if (code && code in FAILED_CODES) {

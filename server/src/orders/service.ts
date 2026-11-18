@@ -9,8 +9,8 @@ import { INTL_SERVICE_ID } from "../providers/vtpass.ts";
 import { maskId, maskName } from "../util/mask.ts";
 import { acceptPhone, SANDBOX_INTL_NUMBERS } from "../util/phone.ts";
 import type { Catalog } from "../vtpass/catalog.ts";
-import type { DexpayClient } from "../dexpay/client.ts";
-import type { VtpassClient } from "../vtpass/client.ts";
+import { DexpayApiError, type DexpayClient } from "../dexpay/client.ts";
+import { VtpassNetworkError, type VtpassClient } from "../vtpass/client.ts";
 import { costNgn, type IntlCatalog } from "../vtpass/intl.ts";
 import { newRequestId } from "../vtpass/requestId.ts";
 import type { OrderStore } from "./store.ts";
@@ -139,8 +139,13 @@ export class OrderService {
   async verifyWoyofalMeter(meterNumber: string): Promise<MeterInfo> {
     if (!this.deps.dexpay) throw new AppError(503, "provider_unconfigured", "Electricity is not available in Senegal yet.");
     if (!/^\d{6,20}$/.test(meterNumber)) throw new AppError(400, "bad_meter", "Meter number must be 6-20 digits.");
-    const meter = await this.deps.dexpay.inquiry("WOYOFAL_SN_BILL", meterNumber).catch(() => {
-      throw new AppError(422, "meter_not_found", "We couldn't find that Woyofal meter. Check the number.");
+    const meter = await this.deps.dexpay.inquiry("WOYOFAL_SN_BILL", meterNumber).catch((err: unknown) => {
+      // Only DEXPAY refusing the meter means "not found". A timeout, 5xx or Cloudflare 52x page means
+      // the lookup is down: say so, so the customer retries instead of doubting a correct number.
+      if (err instanceof DexpayApiError && err.httpStatus >= 400 && err.httpStatus < 500 && !RETRYABLE_HTTP.has(err.httpStatus)) {
+        throw new AppError(422, "meter_not_found", "We couldn't find that Woyofal meter. Check the number.");
+      }
+      throw lookupUnavailable("Senegal electricity");
     });
     if (meter.meterStatus && meter.meterStatus !== "ACTIVE") {
       throw new AppError(422, "meter_cannot_vend", "This meter can't receive a recharge right now.");
@@ -154,10 +159,14 @@ export class OrderService {
     if (!(await this.deps.vtpassCatalog.find("electricity", serviceID))) {
       throw new AppError(400, "unknown_service", "Unknown electricity company.");
     }
-    const body = (await this.deps.vtpass.verifyMerchant({ billersCode: meterNumber, serviceID, type: meterType })) as {
-      code?: string;
-      content?: Record<string, unknown>;
-    } | null;
+    let body: { code?: string; content?: Record<string, unknown> } | null;
+    try {
+      body = (await this.deps.vtpass.verifyMerchant({ billersCode: meterNumber, serviceID, type: meterType })) as typeof body;
+    } catch (err) {
+      if (err instanceof VtpassNetworkError) throw lookupUnavailable("The meter");
+      throw err;
+    }
+    if (body === null || typeof body !== "object") throw lookupUnavailable("The meter"); // empty or HTML error page
     const c = body?.content ?? {};
     const name = typeof c.Customer_Name === "string" ? c.Customer_Name.trim() : "";
     if (body?.code !== "000" || c.WrongBillersCode === true || typeof c.error === "string" || !name) {
@@ -313,7 +322,7 @@ export class OrderService {
       const variation = (await this.deps.vtpassCatalog.listVariations(svc.serviceID)).find((v) => v.code === input.variationCode);
       if (!variation) throw new AppError(400, "unknown_plan", "That data plan is not available.");
       // Price always comes from the provider catalogue, never from the client.
-      const amountLocal = this.checkNgn(Math.round(variation.amountNgn), null, null);
+      const amountLocal = this.checkNgn(Math.ceil(variation.amountNgn), null, null);
       return {
         ...base,
         category: "data",
@@ -361,4 +370,11 @@ export class OrderService {
     }
     return value;
   }
+}
+
+/** Provider replies that mean "busy or down, try again", never "this meter does not exist". */
+const RETRYABLE_HTTP = new Set([408, 425, 429]);
+
+function lookupUnavailable(what: string): AppError {
+  return new AppError(503, "provider_unavailable", `${what} lookup is not answering right now. Try again in a minute.`);
 }

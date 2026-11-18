@@ -78,11 +78,16 @@ export class OrderEngine {
   }
 
   async tick(): Promise<void> {
-    // Orders run in parallel so one slow provider call never delays another customer's lock/release.
-    await Promise.allSettled([
-      ...this.deps.store.listByStates(ACTIVE_STATES).map((o) => this.process(o.id)),
-      ...this.deps.store.listWatchingRecon().map((o) => this.reconcile(o)),
-    ]);
+    try {
+      // Orders run in parallel so one slow provider call never delays another customer's lock/release.
+      await Promise.allSettled([
+        ...this.deps.store.listByStates(ACTIVE_STATES).map((o) => this.process(o.id)),
+        ...this.deps.store.listWatchingRecon().map((o) => this.reconcile(o)),
+      ]);
+    } catch (err) {
+      // Runs from setInterval: a throw here would be an unhandled rejection and stop the server.
+      this.deps.log.error({ err: errMsg(err) }, "engine tick failed; retrying next tick");
+    }
   }
 
   /** Safe to call concurrently and repeatedly for the same order. */
@@ -212,17 +217,22 @@ export class OrderEngine {
       );
     }
     if (result.outcome === "failed") {
+      if (result.code && PROVIDER_ACCOUNT_CODES.has(result.code)) {
+        // Not the customer's fault: Confam's provider account needs attention (float, keys, whitelist).
+        this.deps.log.error({ orderId: order.id, alert: "provider_account", provider: order.provider, code: result.code }, `provider account problem: ${result.reason}`);
+      }
       this.deps.store.patch(order.id, { providerCode: result.code, providerStatus: result.status }, nowMs);
       return this.release(order, "delivery_failed", result.reason);
     }
     this.deps.store.patch(order.id, { providerCode: result.code, providerStatus: result.status, failureDetail: result.reason }, nowMs);
-    return this.checkDeadline(order);
+    return this.checkDeadline({ ...order, failureDetail: result.reason });
   }
 
   private async checkDeadline(order: Order): Promise<Order | null> {
     const started = order.vendStartedAt ?? order.lockedAt ?? order.createdAt;
     if (this.now() - started <= this.cfg.vendDeadlineSec * 1000) return order;
-    return this.release(order, "delivery_unconfirmed", "provider could not confirm delivery in time");
+    const last = order.failureDetail ? ` (last provider reply: ${order.failureDetail})` : "";
+    return this.release(order, "delivery_unconfirmed", `provider could not confirm delivery in time${last}`);
   }
 
   private async onDelivered(order: Order): Promise<void> {
@@ -232,6 +242,21 @@ export class OrderEngine {
       await this.deps.ln.settle(order.preimage);
     } catch (err) {
       const status = await this.lnStatus(order);
+      if (status?.state === "canceled") {
+        // The lock is gone (e.g. it expired at its time limit) after the provider delivered: the
+        // customer can never be charged now. Close it as delivered-after-release instead of retrying.
+        this.deps.log.error({ orderId: order.id, alert: "delivered_lock_lost" }, "lock canceled before settlement; delivered free");
+        const nowMs = this.now();
+        this.deps.store.transition(
+          order.id,
+          "delivered",
+          "released",
+          { releasedAt: nowMs, releaseReason: "lock_lost", failureDetail: "lock canceled before settlement", reconState: "delivered_after_release", billersCode: null, phone: null },
+          "delivered, but the lock was gone before payment: customer not charged",
+          nowMs,
+        );
+        return;
+      }
       if (status?.state !== "settled") {
         this.deps.log.error({ orderId: order.id, err: errMsg(err) }, "settle failed; retrying next tick");
         this.deps.store.patch(order.id, { receiptJson: receipt }, this.now());
@@ -321,6 +346,12 @@ export class OrderEngine {
     }
   }
 }
+
+/**
+ * Failure codes about Confam's own provider account rather than the order: VTpass wallet balance,
+ * account locked/suspended/inactive, API access, IP or product whitelist, credentials; DEXPAY balance.
+ */
+const PROVIDER_ACCOUNT_CODES = new Set(["018", "021", "022", "023", "024", "027", "028", "087", "INSUFFICIENT_BALANCE"]);
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

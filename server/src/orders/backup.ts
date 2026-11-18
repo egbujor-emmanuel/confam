@@ -32,6 +32,8 @@ export class RemoteBackup {
     private readonly store: Pick<OrderStore, "isEmpty" | "changedSince" | "importRows">,
     private readonly remote: RemoteSql,
     private readonly log: BackupLog,
+    /** A remote call that has not answered by then is abandoned, so one hung request never stops backups. */
+    private readonly pushTimeoutMs = 15_000,
   ) {}
 
   /** Creates the remote tables if needed, then restores them into an empty local database. */
@@ -72,7 +74,7 @@ export class RemoteBackup {
           args: [e.seq, e.order_id, e.at, e.from_state, e.to_state, e.note].map((v) => v ?? null),
         })),
       ];
-      await this.remote.batch(statements);
+      await withTimeout(this.remote.batch(statements), this.pushTimeoutMs, "backup push");
       // Advance the watermarks only after the remote accepted the rows.
       this.advance(orders, events);
       return orders.length + events.length;
@@ -105,6 +107,14 @@ export class RemoteBackup {
       await this.push();
     };
   }
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: no reply within ${ms} ms`)), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 /** Adapts @libsql/client (remote Turso database) to RemoteSql. */

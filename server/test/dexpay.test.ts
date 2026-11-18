@@ -78,8 +78,9 @@ describe("DexpayProvider.purchase", () => {
     expect(await p.purchase(order())).toMatchObject({ outcome: "delivered", providerRef: completed.reference });
   });
 
-  it("stays pending on network errors and 5xx (DEXPAY may have processed it)", async () => {
-    for (const err of [new DexpayNetworkError("timeout"), new DexpayApiError(502, null, "bad gateway"), new DexpayApiError(200, null, "non-JSON")]) {
+  it("stays pending on network errors, 5xx, timeouts and rate limits (DEXPAY may have processed it)", async () => {
+    const retryable = [408, 425, 429].map((st) => new DexpayApiError(st, null, `HTTP ${st}`));
+    for (const err of [new DexpayNetworkError("timeout"), new DexpayApiError(502, null, "bad gateway"), new DexpayApiError(200, null, "non-JSON"), ...retryable]) {
       const p = new DexpayProvider(client({ pay: async () => Promise.reject(err) }));
       expect((await p.purchase(order())).outcome).toBe("pending");
     }
@@ -107,10 +108,19 @@ describe("DexpayProvider.check", () => {
     expect(since).toBe("2026-11-18T12:59:00.000Z"); // 2 minutes before the purchase started
   });
 
-  it("waits briefly, then releases if DEXPAY never received the payment", async () => {
+  it("never treats 'no payment found' as a failure; the deadline releases the lock", async () => {
     const p = new DexpayProvider(client());
     expect((await p.check(order(), 5)).outcome).toBe("pending");
-    expect((await p.check(order(), 31)).outcome).toBe("failed");
+    expect((await p.check(order(), 31)).outcome).toBe("pending");
+    expect((await p.check(order(), 600)).outcome).toBe("pending");
+  });
+
+  it("pages past the first 50 recent payments to find ours", async () => {
+    const others = Array.from({ length: 50 }, (_, i) => ({ ...completed, reference: `BILL-${i}`, customData: `{"confam":"other-${i}"}` }));
+    const pages: number[] = [];
+    const p = new DexpayProvider(client({ listSince: async (_code, _from, page = 1) => (pages.push(page), page === 1 ? others : [completed]) }));
+    expect(await p.check(order(), 10)).toMatchObject({ outcome: "delivered", providerRef: completed.reference });
+    expect(pages).toEqual([1, 2]);
   });
 
   it("stays pending when DEXPAY can't be reached", async () => {

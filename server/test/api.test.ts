@@ -11,6 +11,8 @@ import { ReceiptSigner } from "../src/receipts/sign.ts";
 import { Catalog } from "../src/vtpass/catalog.ts";
 import { IntlCatalog } from "../src/vtpass/intl.ts";
 import { FakeLn } from "./fakes.ts";
+import { DexpayApiError, DexpayNetworkError } from "../src/dexpay/client.ts";
+import { VtpassNetworkError } from "../src/vtpass/client.ts";
 
 const cfg = loadConfig({
   NODE_ENV: "test",
@@ -90,10 +92,13 @@ function deps(webDistDir = "/nonexistent") {
     store,
     ln,
     vtpass: {
-      verifyMerchant: async ({ billersCode }) =>
-        billersCode === "1111111111111"
+      verifyMerchant: async ({ billersCode }) => {
+        if (billersCode === "5555555555555") throw new VtpassNetworkError("timeout");
+        if (billersCode === "6666666666666") return null; // HTML error page / empty body
+        return billersCode === "1111111111111"
           ? { code: "000", content: { Customer_Name: "TESTMETER ONE", Address: "ABULE EGBA", Can_Vend: "yes", WrongBillersCode: false } }
-          : { code: "000", content: { error: "meter not found", WrongBillersCode: true } },
+          : { code: "000", content: { error: "meter not found", WrongBillersCode: true } };
+      },
     },
     vtpassCatalog: catalog,
     intl,
@@ -101,7 +106,9 @@ function deps(webDistDir = "/nonexistent") {
     intlDataCountries: new Set(["GH"]),
     dexpay: {
       inquiry: async (_code: string, ref: string) => {
-        if (ref === "99999999") throw new Error("not found");
+        if (ref === "99999999") throw new DexpayApiError(404, "NO_BILL", "no bill for this meter");
+        if (ref === "88888888") throw new DexpayNetworkError("The operation was aborted due to timeout");
+        if (ref === "77777777") throw new DexpayApiError(502, null, "bad gateway");
         return { referenceClient: ref, customerName: "Marie Fall", address: "HLM Grand Yoff, Dakar", meterStatus: ref === "11111111" ? "INACTIVE" : "ACTIVE" };
       },
     },
@@ -259,6 +266,11 @@ describe("API: orders", () => {
     expect(ok.json()).toMatchObject({ customerName: "TESTMETER O.", recipient: "meter 1111******111" });
     const bad = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, meterNumber: "1234567890123" } });
     expect(bad.json().error.code).toBe("meter_not_found");
+    for (const meterNumber of ["5555555555555", "6666666666666"]) {
+      const down = await app.inject({ method: "POST", url: "/api/meter/verify", payload: { serviceID: "ikeja-electric", meterNumber, meterType: "prepaid" } });
+      expect(down.statusCode).toBe(503);
+      expect(down.json().error.code).toBe("provider_unavailable");
+    }
     const notNg = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, countryCode: "GH", meterNumber: "1111111111111" } });
     expect(notNg.json().error.code).toBe("provider_unconfigured");
   });
@@ -331,6 +343,14 @@ describe("API: Senegal electricity (Woyofal via DEXPAY)", () => {
     expect((await app.inject({ method: "POST", url: "/api/meter/woyofal", payload: { meterNumber: "12ab" } })).statusCode).toBe(400);
   });
 
+  it("says the lookup is not answering (503), not 'meter not found', when DEXPAY times out or fails", async () => {
+    for (const meterNumber of ["88888888", "77777777"]) {
+      const r = await app.inject({ method: "POST", url: "/api/meter/woyofal", payload: { meterNumber } });
+      expect(r.statusCode).toBe(503);
+      expect(r.json().error.code).toBe("provider_unavailable");
+    }
+  });
+
   it("quotes and prices a recharge from amount + DEXPAY's 1% fee, so the sats cover what DEXPAY debits", async () => {
     const q = await app.inject({ method: "GET", url: "/api/woyofal/quote?amount=5000" });
     // 5,000 + 50 fee = 5,050 XOF at 60M XOF/BTC = 8,416.67 -> 8,417 sats.
@@ -352,6 +372,23 @@ describe("API: Senegal electricity (Woyofal via DEXPAY)", () => {
     expect((await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, amountLocal: 100 } })).json().error.code).toBe("bad_amount");
     expect((await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, amountLocal: 100001 } })).json().error.code).toBe("bad_amount");
     expect((await app.inject({ method: "GET", url: "/api/woyofal/quote?amount=100" })).statusCode).toBe(400);
+  });
+});
+
+describe("API: rate limits use the real client address", () => {
+  const hit = (headers: Record<string, string>) => app.inject({ method: "POST", url: "/api/orders", payload: {}, headers });
+
+  it("ignores a forged X-Forwarded-For (it cannot buy a fresh rate-limit bucket)", async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 11; i++) codes.push((await hit({ "x-forwarded-for": `203.0.113.${i}` })).statusCode);
+    expect(codes.slice(0, 10).every((c) => c === 400)).toBe(true);
+    expect(codes[10]).toBe(429);
+  });
+
+  it("keys on Cloudflare's CF-Connecting-IP when the request came through Cloudflare", async () => {
+    for (let i = 0; i < 10; i++) await hit({ "cf-ray": "x", "cf-connecting-ip": "198.51.100.1" });
+    expect((await hit({ "cf-ray": "x", "cf-connecting-ip": "198.51.100.1" })).statusCode).toBe(429);
+    expect((await hit({ "cf-ray": "x", "cf-connecting-ip": "198.51.100.2" })).statusCode).toBe(400);
   });
 });
 

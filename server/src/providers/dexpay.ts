@@ -14,13 +14,17 @@ export function mapDexpayStatus(status: DexpayBillStatus | null): VendOutcome {
   return "pending";
 }
 
-/** 4xx (other than 409 replay) means DEXPAY refused the request: nothing was debited. */
+/** 408 timeout, 409 replay, 425 too early, 429 rate limited: DEXPAY may still process it. */
+const RETRYABLE_4XX = new Set([408, 409, 425, 429]);
+
+/** Other 4xx replies mean DEXPAY refused the request: nothing was debited. */
 function isRejection(err: unknown): err is DexpayApiError {
-  return err instanceof DexpayApiError && err.httpStatus >= 400 && err.httpStatus < 500 && err.httpStatus !== 409;
+  return err instanceof DexpayApiError && err.httpStatus >= 400 && err.httpStatus < 500 && !RETRYABLE_4XX.has(err.httpStatus);
 }
 
-/** Grace before "no payment carries our order reference" is trusted to mean "never received". */
-const NOT_FOUND_GRACE_SEC = 30;
+/** Recovery looks through at most this many pages of recent payments (50 per page). */
+const MAX_RECOVERY_PAGES = 10;
+const RECOVERY_PAGE_SIZE = 50;
 
 /** Ties a DEXPAY payment to a Confam order, so a payment whose reply was lost can be found again. */
 export const confamTag = (order: Pick<Order, "requestId">): string => JSON.stringify({ confam: order.requestId });
@@ -60,19 +64,27 @@ export class DexpayProvider implements BillProvider {
     try {
       let payment: DexpayBillPayment | null = null;
       if (order.providerRef) payment = await this.client.get(order.providerRef);
-      if (!payment) {
-        const since = new Date((order.vendStartedAt ?? order.createdAt) - 120_000).toISOString();
-        payment = (await this.client.listSince(WOYOFAL, since)).find((p) => p.customData === confamTag(order)) ?? null;
-      }
-      if (!payment) {
-        return secondsSincePurchase >= NOT_FOUND_GRACE_SEC
-          ? { outcome: "failed", code: null, status: null, reason: "DEXPAY never received the payment" }
-          : { outcome: "pending", code: null, status: null, reason: "payment not visible yet" };
-      }
+      if (!payment) payment = await this.findByTag(order);
+      // "Not found" is not proof DEXPAY never received it (a lagging list can show it later): keep the
+      // lock; the vend deadline releases it and reconciliation keeps looking.
+      if (!payment) return { outcome: "pending", code: null, status: null, reason: `payment not visible at DEXPAY yet (${secondsSincePurchase}s)` };
       return toResult(payment);
     } catch (err) {
       return { outcome: "pending", code: null, status: null, reason: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /** Finds the payment carrying our order tag among recent Woyofal payments, newest first. */
+  private async findByTag(order: Order): Promise<DexpayBillPayment | null> {
+    const since = new Date((order.vendStartedAt ?? order.createdAt) - 120_000).toISOString();
+    const tag = confamTag(order);
+    for (let page = 1; page <= MAX_RECOVERY_PAGES; page++) {
+      const items = await this.client.listSince(WOYOFAL, since, page);
+      const hit = items.find((p) => p.customData === tag);
+      if (hit) return hit;
+      if (items.length < RECOVERY_PAGE_SIZE) return null;
+    }
+    return null;
   }
 }
 
