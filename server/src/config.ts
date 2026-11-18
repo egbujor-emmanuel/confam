@@ -37,6 +37,11 @@ const EnvSchema = z
     /** Customer email VTpass requires on international orders. Defaults to VTpass's sandbox address. */
     VTPASS_CUSTOMER_EMAIL: z.email().default("sandbox@sandbox.vtpass.com"),
 
+    // DEXPAY (Senegal): Woyofal prepaid electricity. Sandbox by default; sk_test_… keys from portal.dexpay.africa.
+    DEXPAY_BASE_URL: z.url().default("https://api-sandbox.dexpay.africa/api/v1"),
+    DEXPAY_SECRET_KEY: z.string().regex(/^sk_(test|live)_[A-Za-z0-9]+$/).optional(),
+    DEXPAY_PUBLIC_KEY: z.string().regex(/^pk_(test|live)_[A-Za-z0-9]+$/).optional(),
+
     // Signs delivery receipts (Nostr event signatures).
     NOSTR_SECRET_KEY_HEX: z.string().regex(/^[0-9a-fA-F]{64}$/),
 
@@ -73,6 +78,8 @@ const EnvSchema = z
 export type Config = z.infer<typeof EnvSchema> & {
   vtpassConfigured: boolean;
   vtpassIsSandbox: boolean;
+  dexpayConfigured: boolean;
+  dexpayIsSandbox: boolean;
   corsOrigins: string[];
 };
 
@@ -89,6 +96,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...cfg,
     vtpassConfigured: Boolean(cfg.VTPASS_API_KEY && cfg.VTPASS_PUBLIC_KEY && cfg.VTPASS_SECRET_KEY),
     vtpassIsSandbox: new URL(cfg.VTPASS_BASE_URL).hostname.startsWith("sandbox."),
+    dexpayConfigured: Boolean(cfg.DEXPAY_SECRET_KEY),
+    dexpayIsSandbox: new URL(cfg.DEXPAY_BASE_URL).hostname.includes("sandbox"),
     corsOrigins: cfg.CORS_ORIGINS.split(",")
       .map((s) => s.trim())
       .filter(Boolean),

@@ -4,7 +4,7 @@ import type { Config } from "../config.ts";
 import { COUNTRIES, findCountry, toInternational } from "../countries.ts";
 import { AppError } from "../errors.ts";
 import type { HoldInvoiceProvider } from "../lightning/types.ts";
-import { CreateOrderSchema, type OrderService } from "../orders/service.ts";
+import { CreateOrderSchema, dexpayFee, WOYOFAL_MAX_XOF, WOYOFAL_MIN_XOF, type OrderService } from "../orders/service.ts";
 import type { OrderStore } from "../orders/store.ts";
 import type { Category } from "../orders/types.ts";
 import { toPublicOrder } from "../orders/view.ts";
@@ -55,6 +55,7 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     lightning: { backend: deps.ln.kind, network: cfg.LIGHTNING_NETWORK_LABEL },
     providers: {
       vtpass: { configured: cfg.vtpassConfigured, sandbox: cfg.vtpassIsSandbox },
+      dexpay: { configured: cfg.dexpayConfigured, sandbox: cfg.dexpayIsSandbox },
     },
     limits: { minNgn: cfg.MIN_ORDER_NGN, maxNgn: cfg.MAX_ORDER_NGN, maxSats: cfg.MAX_ORDER_SATS, vendDeadlineSec: cfg.VEND_DEADLINE_SEC },
     testWallet: cfg.TEST_WALLET_FAUCET ? { enabled: true, balanceSats: cfg.TEST_WALLET_BALANCE_SATS } : { enabled: false },
@@ -137,6 +138,22 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
       req.body,
     );
     return deps.orders.verifyMeter(body.serviceID, body.meterNumber, body.meterType);
+  });
+
+  // Senegal: Woyofal meter lookup via DEXPAY.
+  app.post("/api/meter/woyofal", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req) => {
+    const body = parse(z.object({ meterNumber: z.string().regex(/^\d{6,20}$/) }), req.body);
+    return deps.orders.verifyWoyofalMeter(body.meterNumber);
+  });
+
+  // Exact sats for a Woyofal recharge: amount + DEXPAY's 1% fee, priced in XOF.
+  app.get<{ Querystring: { amount?: string } }>("/api/woyofal/quote", async (req) => {
+    const amount = parse(z.coerce.number().int().min(WOYOFAL_MIN_XOF).max(WOYOFAL_MAX_XOF), req.query.amount);
+    const rate = await deps.rates.current("XOF").catch(() => {
+      throw new AppError(503, "no_rate", "Bitcoin price is unavailable right now.");
+    });
+    const fee = dexpayFee(amount);
+    return { amount, fee, currency: "XOF", amountSats: localToSats(amount + fee, rate.perBtc, cfg.SERVICE_FEE_BPS) };
   });
 
   app.get<{ Querystring: { amount?: string; currency?: string } }>("/api/quote", async (req) => {

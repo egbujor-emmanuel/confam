@@ -1,11 +1,13 @@
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { COUNTRIES } from "./countries.ts";
+import { DexpayClient } from "./dexpay/client.ts";
 import { createHoldInvoiceProvider } from "./lightning/index.ts";
 import { OrderEngine } from "./orders/engine.ts";
 import { OrderService } from "./orders/service.ts";
 import { OrderStore } from "./orders/store.ts";
 import { RateService } from "./pricing/rates.ts";
+import { DexpayProvider } from "./providers/dexpay.ts";
 import type { ProviderRegistry } from "./providers/types.ts";
 import { VtpassProvider } from "./providers/vtpass.ts";
 import { ReceiptSigner } from "./receipts/sign.ts";
@@ -28,6 +30,9 @@ async function main(): Promise<void> {
     : null;
   const providers: ProviderRegistry = {};
   if (vtpass) providers.vtpass = new VtpassProvider(vtpass, cfg.VTPASS_CUSTOMER_EMAIL);
+  // Senegal electricity (Woyofal) via DEXPAY.
+  const dexpay = cfg.DEXPAY_SECRET_KEY ? new DexpayClient(cfg.DEXPAY_BASE_URL, cfg.DEXPAY_SECRET_KEY) : null;
+  if (dexpay) providers.dexpay = new DexpayProvider(dexpay);
 
   // International airtime/data: the country list is read once at startup from VTpass's catalogue.
   const intl = vtpass ? new IntlCatalog(cfg.VTPASS_INTL_CATALOG_URL ?? cfg.VTPASS_BASE_URL) : null;
@@ -56,6 +61,7 @@ async function main(): Promise<void> {
     intl,
     intlCountries,
     intlDataCountries,
+    dexpay,
     rates,
     vtpassSandbox: cfg.vtpassIsSandbox,
     limits: {

@@ -1,6 +1,6 @@
 export type Category = "airtime" | "data" | "electricity";
 export type OrderState = "awaiting_payment" | "locked" | "vending" | "delivered" | "completed" | "released" | "expired";
-export type ProviderId = "vtpass";
+export type ProviderId = "vtpass" | "dexpay";
 
 export interface AppConfig {
   lightning: { backend: string; network: string };
@@ -138,6 +138,8 @@ export const api = {
   variations: (serviceID: string) => request<{ variations: Variation[] }>(`/api/catalog/variations/${q(serviceID)}`).then((r) => r.variations),
   verifyMeter: (serviceID: string, meterNumber: string, meterType: "prepaid" | "postpaid") =>
     request<MeterInfo>("/api/meter/verify", { method: "POST", body: JSON.stringify({ serviceID, meterNumber, meterType }) }),
+  verifyWoyofal: (meterNumber: string) => request<MeterInfo>("/api/meter/woyofal", { method: "POST", body: JSON.stringify({ meterNumber }) }),
+  woyofalQuote: (amount: number) => request<{ amount: number; fee: number; currency: string; amountSats: number }>(`/api/woyofal/quote?amount=${amount}`),
   quote: (amount: number, currency: string) =>
     request<{ amount: number; currency: string; amountSats: number; perBtc: number }>(`/api/quote?amount=${amount}&currency=${q(currency)}`),
   createOrder: (input: CreateOrderInput) => request<Order>("/api/orders", { method: "POST", body: JSON.stringify(input) }),

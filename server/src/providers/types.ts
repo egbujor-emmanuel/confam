@@ -1,6 +1,6 @@
 import type { Order } from "../orders/types.ts";
 
-export type ProviderId = "vtpass";
+export type ProviderId = "vtpass" | "dexpay";
 export type VendOutcome = "delivered" | "failed" | "pending";
 
 /** What a bill provider said about a purchase, normalised for the order engine. */

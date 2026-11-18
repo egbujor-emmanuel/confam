@@ -9,6 +9,7 @@ import { INTL_SERVICE_ID } from "../providers/vtpass.ts";
 import { maskId, maskName } from "../util/mask.ts";
 import { acceptPhone, SANDBOX_INTL_NUMBERS } from "../util/phone.ts";
 import type { Catalog } from "../vtpass/catalog.ts";
+import type { DexpayClient } from "../dexpay/client.ts";
 import type { VtpassClient } from "../vtpass/client.ts";
 import { costNgn, type IntlCatalog } from "../vtpass/intl.ts";
 import { newRequestId } from "../vtpass/requestId.ts";
@@ -44,7 +45,7 @@ export const CreateOrderSchema = z.discriminatedUnion("category", [
     category: z.literal("electricity"),
     countryCode: iso,
     serviceID: serviceId,
-    meterNumber: z.string().regex(/^\d{6,13}$/, "meter number must be 6-13 digits"),
+    meterNumber: z.string().regex(/^\d{6,20}$/, "meter number must be 6-20 digits"),
     meterType: z.enum(["prepaid", "postpaid"]),
     phone,
     amountLocal: amount,
@@ -69,6 +70,8 @@ export interface OrderServiceDeps {
   intlCountries: ReadonlySet<string>;
   /** Countries where VTpass actually has data bundles (many list networks with no plans). */
   intlDataCountries: ReadonlySet<string>;
+  /** DEXPAY (Senegal Woyofal electricity); null when not configured. */
+  dexpay?: Pick<DexpayClient, "inquiry"> | null;
   rates: Pick<RateService, "current">;
   limits: { minNgn: number; maxNgn: number; maxSats: number; feeBps: number; invoiceExpirySec: number };
   vtpassSandbox: boolean;
@@ -92,9 +95,18 @@ type Product = Pick<
   | "meterType"
   | "customerName"
 > & {
-  /** International orders: the naira VTpass charges, which the sats price is computed from. */
-  costNgn?: number;
+  /**
+   * When the provider charges something other than the face amount (VTpass international: naira at
+   * VTpass's rate; DEXPAY: amount + its fee), the sats are priced from this so they always cover the cost.
+   */
+  pricing?: { currency: string; amount: number; note: string };
 };
+
+/** Woyofal recharge range Confam accepts (XOF); the sats cap (MAX_ORDER_SATS) also applies. */
+export const WOYOFAL_MIN_XOF = 500;
+export const WOYOFAL_MAX_XOF = 100_000;
+/** DEXPAY's bill fee, observed in its sandbox: 1% of the amount (5,000 -> 50, 1,000 -> 10, 100 -> 1). */
+export const dexpayFee = (amount: number): number => Math.ceil(amount / 100);
 
 const fmt = (n: number, currency: string): string =>
   `${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(n)} ${currency}`;
@@ -107,16 +119,33 @@ export class OrderService {
   }
 
   /**
-   * Which provider serves (country, category)? Everything runs on VTpass: Nigerian airtime, data and
-   * electricity, and international airtime/data for the countries VTpass's catalogue lists.
+   * Which provider serves (country, category)? VTpass: Nigerian airtime, data and electricity, plus
+   * international airtime/data where its catalogue has them. DEXPAY: Senegal electricity (Woyofal).
    */
   route(country: Country, category: Category): ProviderId | null {
+    if (category === "electricity") {
+      if (country.iso === "NG") return this.deps.vtpass ? "vtpass" : null;
+      if (country.iso === "SN") return this.deps.dexpay ? "dexpay" : null;
+      return null;
+    }
     if (!this.deps.vtpass) return null;
     if (country.iso === "NG") return "vtpass";
-    if (category === "electricity") return null; // electricity: Nigeria only
     if (!this.deps.intl || !this.deps.intlCountries.has(country.iso)) return null;
     if (category === "data" && !this.deps.intlDataCountries.has(country.iso)) return null;
     return "vtpass";
+  }
+
+  /** Senegal: looks up a Woyofal meter with DEXPAY before an order is created. */
+  async verifyWoyofalMeter(meterNumber: string): Promise<MeterInfo> {
+    if (!this.deps.dexpay) throw new AppError(503, "provider_unconfigured", "Electricity is not available in Senegal yet.");
+    if (!/^\d{6,20}$/.test(meterNumber)) throw new AppError(400, "bad_meter", "Meter number must be 6-20 digits.");
+    const meter = await this.deps.dexpay.inquiry("WOYOFAL_SN_BILL", meterNumber).catch(() => {
+      throw new AppError(422, "meter_not_found", "We couldn't find that Woyofal meter. Check the number.");
+    });
+    if (meter.meterStatus && meter.meterStatus !== "ACTIVE") {
+      throw new AppError(422, "meter_cannot_vend", "This meter can't receive a recharge right now.");
+    }
+    return { customerName: meter.customerName, address: meter.address, minAmount: WOYOFAL_MIN_XOF };
   }
 
   async verifyMeter(serviceID: string, meterNumber: string, meterType: "prepaid" | "postpaid"): Promise<MeterInfo> {
@@ -151,15 +180,20 @@ export class OrderService {
     const provider = this.route(country, input.category);
     if (!provider) throw new AppError(503, "provider_unconfigured", "This service is not available in that country yet.");
 
-    const { costNgn: cost, ...product } = country.iso === "NG" ? await this.vtpassProduct(input, country) : await this.intlProduct(input, country);
+    const { pricing, ...product } =
+      provider === "dexpay"
+        ? await this.woyofalProduct(input, country)
+        : country.iso === "NG"
+          ? await this.vtpassProduct(input, country)
+          : await this.intlProduct(input, country);
 
-    // International orders are priced from what VTpass charges in naira, so the sats always cover the cost.
-    const rate = await this.deps.rates.current(cost === undefined ? product.currency : "NGN").catch(() => {
+    // Priced from what the provider actually charges, so the sats always cover the cost.
+    const rate = await this.deps.rates.current(pricing?.currency ?? product.currency).catch(() => {
       throw new AppError(503, "no_rate", "Bitcoin price is unavailable right now. Try again in a minute.");
     });
-    const amountSats = localToSats(cost ?? product.amountLocal, rate.perBtc, this.deps.limits.feeBps);
+    const amountSats = localToSats(pricing?.amount ?? product.amountLocal, rate.perBtc, this.deps.limits.feeBps);
     // Local units per BTC actually paid, so the order page converts sats <-> local amount consistently.
-    const ratePerBtc = cost === undefined ? rate.perBtc : (product.amountLocal * 100_000_000) / amountSats;
+    const ratePerBtc = pricing ? (product.amountLocal * 100_000_000) / amountSats : rate.perBtc;
     if (amountSats > this.deps.limits.maxSats) {
       throw new AppError(400, "bad_amount", "That amount is above Confam's per-order limit.");
     }
@@ -178,7 +212,7 @@ export class OrderService {
         id: randomBytes(16).toString("base64url"),
         amountSats,
         ratePerBtc,
-        rateSource: cost === undefined ? rate.source : `${rate.source} (NGN) + VTpass rate`,
+        rateSource: pricing ? `${rate.source} (${pricing.currency}) + ${pricing.note}` : rate.source,
         paymentHash: paymentHashHex,
         preimage: preimageHex,
         invoice,
@@ -219,7 +253,35 @@ export class OrderService {
       recipientMasked: `+${maskId(intlPhone)}`,
       meterType: null,
       customerName: null,
-      costNgn: cost,
+      pricing: { currency: "NGN", amount: cost, note: "VTpass rate" },
+    };
+  }
+
+  /** Senegal Woyofal prepaid electricity via DEXPAY; the customer pays the recharge plus DEXPAY's fee. */
+  private async woyofalProduct(input: CreateOrderInput, country: Country): Promise<Product> {
+    if (input.category !== "electricity") throw new AppError(400, "unsupported", "Only electricity is sold through this provider.");
+    const meter = await this.verifyWoyofalMeter(input.meterNumber);
+    const amountLocal = input.amountLocal;
+    if (!Number.isInteger(amountLocal) || amountLocal < WOYOFAL_MIN_XOF || amountLocal > WOYOFAL_MAX_XOF) {
+      throw new AppError(400, "bad_amount", `Choose ${fmt(WOYOFAL_MIN_XOF, "XOF")} to ${fmt(WOYOFAL_MAX_XOF, "XOF")}.`);
+    }
+    const intlPhone = toInternational(input.phone, country) ?? input.phone.replace(/\D/g, "");
+    return {
+      category: "electricity",
+      provider: "dexpay",
+      countryCode: country.iso,
+      currency: "XOF",
+      serviceId: "woyofal",
+      operatorId: null,
+      variationCode: "prepaid",
+      productLabel: `${fmt(amountLocal, "XOF")} Woyofal electricity (Senelec prepaid)`,
+      amountLocal,
+      billersCode: input.meterNumber,
+      phone: intlPhone,
+      recipientMasked: `meter ${maskId(input.meterNumber)}`,
+      meterType: "prepaid",
+      customerName: maskName(meter.customerName),
+      pricing: { currency: "XOF", amount: amountLocal + dexpayFee(amountLocal), note: "DEXPAY 1% fee" },
     };
   }
 

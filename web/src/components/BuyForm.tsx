@@ -2,6 +2,7 @@ import type { AppConfig, Category, Country } from "../api.ts";
 import { navigate } from "../hooks.ts";
 import { useT } from "../i18n.ts";
 import { IntlForm } from "./buy/IntlForm.tsx";
+import { WoyofalForm } from "./buy/WoyofalForm.tsx";
 import { VtpassForm } from "./buy/VtpassForm.tsx";
 import { CountryPicker } from "./CountryPicker.tsx";
 
@@ -31,6 +32,8 @@ export function BuyForm({ category, config, countries, country, onCountry }: Pro
       <hr className="dash" />
       {!country ? (
         <p className="muted">…</p>
+      ) : provider === "dexpay" && category === "electricity" ? (
+        <WoyofalForm key={`${country.iso}-${category}`} country={country} sandbox={config?.providers.dexpay?.sandbox ?? false} />
       ) : provider === "vtpass" && country.iso === "NG" ? (
         <VtpassForm key={`${country.iso}-${category}`} category={category} sandbox={config?.providers.vtpass.sandbox ?? false} />
       ) : provider === "vtpass" && category !== "electricity" ? (

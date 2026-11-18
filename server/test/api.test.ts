@@ -99,6 +99,12 @@ function deps(webDistDir = "/nonexistent") {
     intl,
     intlCountries: new Set(["SN", "GH"]),
     intlDataCountries: new Set(["GH"]),
+    dexpay: {
+      inquiry: async (_code: string, ref: string) => {
+        if (ref === "99999999") throw new Error("not found");
+        return { referenceClient: ref, customerName: "Marie Fall", address: "HLM Grand Yoff, Dakar", meterStatus: ref === "11111111" ? "INACTIVE" : "ACTIVE" };
+      },
+    },
     rates,
     vtpassSandbox: true,
     limits,
@@ -135,7 +141,7 @@ describe("API: config & catalogue", () => {
     const res = await app.inject({ method: "GET", url: "/api/countries" });
     const byIso = Object.fromEntries(res.json().countries.map((c: { iso: string }) => [c.iso, c]));
     expect(byIso.NG.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: "vtpass" });
-    expect(byIso.SN.services).toEqual({ airtime: "vtpass", data: null, electricity: null }); // no data bundles in this fixture
+    expect(byIso.SN.services).toEqual({ airtime: "vtpass", data: null, electricity: "dexpay" }); // no data bundles in this fixture
     expect(byIso.GH.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: null });
     expect(byIso.ML).toBeUndefined(); // not in VTpass's international list in this fixture
     expect(byIso.SN).toMatchObject({ currency: "XOF", dial: "221" });
@@ -253,7 +259,7 @@ describe("API: orders", () => {
     expect(ok.json()).toMatchObject({ customerName: "TESTMETER O.", recipient: "meter 1111******111" });
     const bad = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, meterNumber: "1234567890123" } });
     expect(bad.json().error.code).toBe("meter_not_found");
-    const notNg = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, countryCode: "SN", meterNumber: "1111111111111" } });
+    const notNg = await app.inject({ method: "POST", url: "/api/orders", payload: { ...payload, countryCode: "GH", meterNumber: "1111111111111" } });
     expect(notNg.json().error.code).toBe("provider_unconfigured");
   });
 
@@ -312,5 +318,39 @@ describe("API: static app & headers", () => {
     const res = await app.inject({ method: "GET", url: "/api/health" });
     expect(res.headers["content-security-policy"]).toContain("default-src 'self'");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+});
+
+describe("API: Senegal electricity (Woyofal via DEXPAY)", () => {
+  it("looks up a Woyofal meter and rejects unknown or inactive ones", async () => {
+    const ok = await app.inject({ method: "POST", url: "/api/meter/woyofal", payload: { meterNumber: "04520123456789" } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ customerName: "Marie Fall", address: "HLM Grand Yoff, Dakar", minAmount: 500 });
+    expect((await app.inject({ method: "POST", url: "/api/meter/woyofal", payload: { meterNumber: "99999999" } })).json().error.code).toBe("meter_not_found");
+    expect((await app.inject({ method: "POST", url: "/api/meter/woyofal", payload: { meterNumber: "11111111" } })).json().error.code).toBe("meter_cannot_vend");
+    expect((await app.inject({ method: "POST", url: "/api/meter/woyofal", payload: { meterNumber: "12ab" } })).statusCode).toBe(400);
+  });
+
+  it("quotes and prices a recharge from amount + DEXPAY's 1% fee, so the sats cover what DEXPAY debits", async () => {
+    const q = await app.inject({ method: "GET", url: "/api/woyofal/quote?amount=5000" });
+    // 5,000 + 50 fee = 5,050 XOF at 60M XOF/BTC = 8,416.67 -> 8,417 sats.
+    expect(q.json()).toEqual({ amount: 5000, fee: 50, currency: "XOF", amountSats: 8417 });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      payload: { category: "electricity", countryCode: "SN", serviceID: "woyofal", meterNumber: "04520123456789", meterType: "prepaid", phone: "77 123 45 67", amountLocal: 5000 },
+    });
+    expect(res.statusCode).toBe(201);
+    const o = res.json();
+    expect(o).toMatchObject({ currency: "XOF", amountLocal: 5000, amountSats: 8417, product: "5,000 XOF Woyofal electricity (Senelec prepaid)", customerName: "Marie F." });
+    expect(store.get(o.id)).toMatchObject({ provider: "dexpay", billersCode: "04520123456789", meterType: "prepaid" });
+    expect(res.body).not.toContain("04520123456789");
+  });
+
+  it("enforces the Woyofal range", async () => {
+    const base = { category: "electricity", countryCode: "SN", serviceID: "woyofal", meterNumber: "04520123456789", meterType: "prepaid", phone: "771234567" };
+    expect((await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, amountLocal: 100 } })).json().error.code).toBe("bad_amount");
+    expect((await app.inject({ method: "POST", url: "/api/orders", payload: { ...base, amountLocal: 100001 } })).json().error.code).toBe("bad_amount");
+    expect((await app.inject({ method: "GET", url: "/api/woyofal/quote?amount=100" })).statusCode).toBe(400);
   });
 });
