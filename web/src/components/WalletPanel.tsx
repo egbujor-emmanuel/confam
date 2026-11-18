@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type AppConfig } from "../api.ts";
 import { sats } from "../format.ts";
+import { useT } from "../i18n.ts";
 import { forgetWallet, saveWalletUrl } from "../wallet.ts";
 
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function WalletPanel({ config, isConnected, balance, onClose, onChanged }: Props) {
+  const { lang, t } = useT();
   const [nwc, setNwc] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,15 +58,15 @@ export function WalletPanel({ config, isConnected, balance, onClose, onChanged }
     <div className="sheet-backdrop" role="presentation" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="wallet-title" onClick={(e) => e.stopPropagation()}>
         <p className="eyebrow" id="wallet-title">
-          Your wallet
+          {t.walletTitle}
         </p>
         {isConnected ? (
           <>
-            <h2 className="money">{balance === null ? "…" : sats(balance)}</h2>
-            <p className="muted">Connected with Nostr Wallet Connect. Your keys stay with your wallet provider, not with Confam.</p>
+            <h2 className="money">{balance === null ? "…" : sats(balance, lang)}</h2>
+            <p className="muted">{t.walletConnectedNote}</p>
             <div className="btn-row">
               <button ref={firstButton} type="button" className="btn" onClick={onClose}>
-                Done
+                {t.done}
               </button>
               <button
                 type="button"
@@ -74,32 +76,32 @@ export function WalletPanel({ config, isConnected, balance, onClose, onChanged }
                   onChanged();
                 }}
               >
-                Disconnect this wallet
+                {t.disconnect}
               </button>
             </div>
           </>
         ) : (
           <>
-            <h2>Pay in one tap</h2>
-            <p className="muted">Connect a Lightning wallet, or grab a free test wallet to try Confam right now.</p>
-            <div className="btn-row">
-              {config?.testWallet.enabled && (
+            <h2>{t.payInOneTap}</h2>
+            <p className="muted">{t.walletIntro}</p>
+            {config?.testWallet.enabled && (
+              <div className="btn-row">
                 <button ref={firstButton} type="button" className="btn lime" onClick={handleCreate} disabled={isBusy}>
                   {isBusy ? <span className="spinner" aria-hidden="true" /> : null}
-                  {isBusy ? "Creating…" : `Get a free test wallet (${sats(config.testWallet.balanceSats ?? 0)})`}
+                  {isBusy ? t.creating : t.freeTestWallet(sats(config.testWallet.balanceSats ?? 0, lang))}
                 </button>
-              )}
-            </div>
+              </div>
+            )}
             <hr className="dash" />
             <div className="field">
               <label className="label" htmlFor="nwc">
-                Or paste a Nostr Wallet Connect link
+                {t.pasteNwc}
               </label>
               <input id="nwc" className="input mono" placeholder="nostr+walletconnect://…" value={nwc} onChange={(e) => setNwc(e.target.value)} autoComplete="off" />
-              <span className="hint">Tip: create the connection with a small spending budget (e.g. in Alby Hub). It stays on this device.</span>
+              <span className="hint">{t.nwcTip}</span>
             </div>
             <button type="button" className="btn ghost" onClick={handleConnect} disabled={!nwc.startsWith("nostr+walletconnect://")}>
-              Connect this wallet
+              {t.connectThis}
             </button>
           </>
         )}

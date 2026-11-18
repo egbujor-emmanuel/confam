@@ -1,12 +1,23 @@
 export type Category = "airtime" | "data" | "electricity";
 export type OrderState = "awaiting_payment" | "locked" | "vending" | "delivered" | "completed" | "released" | "expired";
+export type ProviderId = "vtpass" | "reloadly";
 
 export interface AppConfig {
   lightning: { backend: string; network: string };
-  provider: { configured: boolean; sandbox: boolean };
-  limits: { minNgn: number; maxNgn: number; vendDeadlineSec: number };
+  providers: Record<ProviderId, { configured: boolean; sandbox: boolean }>;
+  limits: { minNgn: number; maxNgn: number; maxSats: number; vendDeadlineSec: number };
   testWallet: { enabled: boolean; balanceSats?: number };
   receipts: { npub: string; pubkey: string };
+}
+
+export interface Country {
+  iso: string;
+  name: string;
+  nameFr: string;
+  dial: string;
+  currency: string;
+  flag: string;
+  services: Record<Category, ProviderId | null>;
 }
 
 export interface Service {
@@ -23,6 +34,25 @@ export interface Variation {
   amountNgn: number;
 }
 
+export interface OperatorInfo {
+  operatorId: string;
+  name: string;
+  currency: string;
+  minAmount: number | null;
+  maxAmount: number | null;
+  fixedAmounts: number[];
+  suggestedAmounts: number[];
+  logo: string | null;
+  isData: boolean;
+}
+
+export interface DataPlan {
+  operatorId: string;
+  operatorName: string;
+  amountLocal: number;
+  name: string;
+}
+
 export interface MeterInfo {
   customerName: string | null;
   address: string | null;
@@ -32,15 +62,15 @@ export interface MeterInfo {
 export interface Order {
   id: string;
   state: OrderState;
-  headline: string;
-  detail: string;
   category: Category;
+  countryCode: string;
+  currency: string;
   product: string;
   recipient: string;
   customerName: string | null;
-  amountNgn: number;
+  amountLocal: number;
   amountSats: number;
-  rateNgnPerBtc: number;
+  ratePerBtc: number;
   invoice: string | null;
   invoiceExpiresAt: number;
   token: string | null;
@@ -62,9 +92,9 @@ export interface SignedReceipt {
 }
 
 export type CreateOrderInput =
-  | { category: "airtime"; serviceID: string; phone: string; amountNgn: number }
-  | { category: "data"; serviceID: string; phone: string; variationCode: string }
-  | { category: "electricity"; serviceID: string; meterNumber: string; meterType: "prepaid" | "postpaid"; phone: string; amountNgn: number };
+  | { category: "airtime"; countryCode: string; phone: string; amountLocal: number; serviceID?: string; operatorId?: string }
+  | { category: "data"; countryCode: string; phone: string; serviceID?: string; variationCode?: string; operatorId?: string; amountLocal?: number }
+  | { category: "electricity"; countryCode: string; serviceID: string; meterNumber: string; meterType: "prepaid" | "postpaid"; phone: string; amountLocal: number };
 
 export class ApiError extends Error {
   constructor(
@@ -92,16 +122,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+const q = encodeURIComponent;
+
 export const api = {
   config: () => request<AppConfig>("/api/config"),
+  countries: () => request<{ countries: Country[] }>("/api/countries").then((r) => r.countries),
+  detectOperator: (country: string, phone: string) =>
+    request<{ operator: OperatorInfo }>(`/api/operators/detect?country=${q(country)}&phone=${q(phone)}`).then((r) => r.operator),
+  dataPlans: (country: string) => request<{ plans: DataPlan[] }>(`/api/data-plans?country=${q(country)}`).then((r) => r.plans),
   services: (category: Category) => request<{ services: Service[] }>(`/api/catalog/${category}`).then((r) => r.services),
-  variations: (serviceID: string) =>
-    request<{ variations: Variation[] }>(`/api/catalog/variations/${encodeURIComponent(serviceID)}`).then((r) => r.variations),
+  variations: (serviceID: string) => request<{ variations: Variation[] }>(`/api/catalog/variations/${q(serviceID)}`).then((r) => r.variations),
   verifyMeter: (serviceID: string, meterNumber: string, meterType: "prepaid" | "postpaid") =>
     request<MeterInfo>("/api/meter/verify", { method: "POST", body: JSON.stringify({ serviceID, meterNumber, meterType }) }),
-  quote: (amountNgn: number) =>
-    request<{ amountNgn: number; amountSats: number; ngnPerBtc: number }>(`/api/quote?amountNgn=${amountNgn}`),
+  quote: (amount: number, currency: string) =>
+    request<{ amount: number; currency: string; amountSats: number; perBtc: number }>(`/api/quote?amount=${amount}&currency=${q(currency)}`),
   createOrder: (input: CreateOrderInput) => request<Order>("/api/orders", { method: "POST", body: JSON.stringify(input) }),
-  order: (id: string) => request<Order>(`/api/orders/${encodeURIComponent(id)}`),
+  order: (id: string) => request<Order>(`/api/orders/${q(id)}`),
   testWallet: () => request<{ nwcUrl: string; balanceSats: number }>("/api/test-wallet", { method: "POST" }),
 };

@@ -1,83 +1,90 @@
-import type { AppConfig } from "../api.ts";
+import type { AppConfig, Category, Country } from "../api.ts";
 import { navigate } from "../hooks.ts";
+import { useT } from "../i18n.ts";
+import { CountryPicker } from "./CountryPicker.tsx";
+import { LockCoin } from "./lock3d/LockCoin.tsx";
 
 type Props = {
   config: AppConfig | null;
+  countries: Country[];
+  country: Country | null;
+  onCountry: (iso: string) => void;
 };
 
-export function Home({ config }: Props) {
-  const providerReady = config?.provider.configured ?? true;
+/** 3D category icons, rendered from the same model as the lock (see web/icon-studio). */
+const TILES: readonly Category[] = ["airtime", "data", "electricity"];
+
+export function Home({ config, countries, country, onCountry }: Props) {
+  const { t } = useT();
+  const anyProvider = config ? config.providers.reloadly.configured || config.providers.vtpass.configured : true;
+  const sub: Record<Category, string> = { airtime: t.airtimeSub, data: t.dataSub, electricity: t.electricitySub };
+  const label: Record<Category, string> = { airtime: t.airtime, data: t.data, electricity: t.electricity };
+
   return (
     <>
       <section className="hero" aria-labelledby="hero-title">
-        <h1 id="hero-title">
-          E no land?
-          <br />
-          <em>You no pay.</em>
-        </h1>
-        <p>Buy airtime, data and electricity with Bitcoin. Your payment only completes after delivery is confirmed.</p>
+        <div className="hero__copy">
+          <h1 id="hero-title">
+            {t.tagline1}
+            <br />
+            <em>{t.tagline2}</em>
+          </h1>
+          <p>{t.heroSub}</p>
+        </div>
+        <LockCoin state="idle" label={t.lockLabel(t.tagline2)} className="hero__lock" />
       </section>
 
       <section className="receipt" aria-labelledby="buy-title">
-        <p className="eyebrow" id="buy-title">
-          What do you want to buy?
-        </p>
-        {!providerReady && <p className="notice warn">Bill payments are being set up. You can still explore the app.</p>}
+        <div className="receipt__head">
+          <p className="eyebrow" id="buy-title">
+            {t.whatToBuy}
+          </p>
+          {countries.length > 0 && country && <CountryPicker countries={countries} value={country.iso} onChange={onCountry} />}
+        </div>
+        {!anyProvider && <p className="notice warn">{t.setupNotice}</p>}
         <div className="tiles">
-          <button type="button" className="tile primary" onClick={() => navigate("#/buy/electricity")}>
-            <span className="tile-icon" aria-hidden="true">
-              ⚡
-            </span>
-            <span>
-              <span className="tile-title">Electricity token</span>
-              <br />
-              <span className="tile-sub">IKEDC, EKEDC, AEDC and more. Token shows on screen.</span>
-            </span>
-          </button>
-          <button type="button" className="tile" onClick={() => navigate("#/buy/airtime")}>
-            <span className="tile-icon" aria-hidden="true">
-              📱
-            </span>
-            <span>
-              <span className="tile-title">Airtime</span>
-              <br />
-              <span className="tile-sub">MTN, Airtel, Glo, 9mobile</span>
-            </span>
-          </button>
-          <button type="button" className="tile" onClick={() => navigate("#/buy/data")}>
-            <span className="tile-icon" aria-hidden="true">
-              📶
-            </span>
-            <span>
-              <span className="tile-title">Data</span>
-              <br />
-              <span className="tile-sub">All bundles</span>
-            </span>
-          </button>
+          {TILES.map((category, i) => {
+            const available = country ? Boolean(country.services[category]) : true;
+            return (
+              <button
+                key={category}
+                type="button"
+                className={`tile${i === 0 ? " primary" : ""}`}
+                disabled={!available}
+                onClick={() => navigate(`#/buy/${category}`)}
+              >
+                <img className="tile-icon" src={`/icons/${category}.webp`} width="56" height="56" alt="" decoding="async" />
+                <span>
+                  <span className="tile-title">{label[category]}</span>
+                  <br />
+                  <span className="tile-sub">{available ? sub[category] : t.notAvailableHere}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
       <section className="receipt" aria-labelledby="how-title">
         <p className="eyebrow" id="how-title">
-          Why Confam is different
+          {t.whyEyebrow}
         </p>
-        <h2>No more “debited but nothing came”.</h2>
+        <h2>{t.whyTitle}</h2>
         <hr className="dash" />
         <ol className="steps">
           <li>
             <span>
-              <strong>You pay, but your sats are only locked.</strong> They don't move yet.
+              <strong>{t.step1}</strong> {t.step1b}
             </span>
           </li>
           <li>
             <span>
-              <strong>We buy your airtime, data or token.</strong> We wait for the provider to confirm it landed.
+              <strong>{t.step2}</strong> {t.step2b}
             </span>
           </li>
           <li>
             <span>
-              <strong>Delivered? Payment completes.</strong> Failed? The lock is released and your sats never left your
-              wallet. No refund to chase, no customer care.
+              <strong>{t.step3}</strong> {t.step3b}
             </span>
           </li>
         </ol>

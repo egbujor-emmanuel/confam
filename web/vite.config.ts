@@ -10,6 +10,7 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: false,
-    chunkSizeWarningLimit: 400,
+    // The three.js lock scene (~136 KB gz) is lazy-loaded only on capable devices/connections.
+    chunkSizeWarningLimit: 600,
   },
 });

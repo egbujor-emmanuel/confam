@@ -69,22 +69,33 @@ export async function buildApp(deps: ApiDeps, opts: AppOptions = {}): Promise<Fa
     // wildcard: true resolves files at request time (a startup-time route table breaks after rebuilds).
     await app.register(fastifyStatic, { root: dist, wildcard: true, cacheControl: false });
     // index.html (and every SPA route) must always revalidate because it points at the current
-    // hashed bundles; files under /assets/ are content-hashed and can be cached forever.
+    // hashed bundles; files under /assets/ are content-hashed and can be cached forever; other
+    // public files (icons, manifest, social card) get a day, saving a round trip per visit on 3G.
     app.addHook("onSend", async (req, reply, payload) => {
       if (req.method === "GET" && !req.url.startsWith("/api/")) {
-        const immutable = req.url.startsWith("/assets/") && reply.statusCode === 200;
-        reply.header("cache-control", immutable ? "public, max-age=31536000, immutable" : "no-cache");
+        reply.header("cache-control", staticCacheControl(req.url.split("?")[0] ?? "", reply.statusCode));
       }
       return payload;
     });
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split("?")[0] ?? "";
       // SPA fallback only for app routes. A missing asset/file must 404, never return HTML as JS.
-      const isFileLike = path.startsWith("/assets/") || /\.[a-z0-9]{1,8}$/i.test(path);
+      const isFileLike = path.startsWith("/assets/") || FILE_LIKE.test(path);
       if (req.method === "GET" && !path.startsWith("/api/") && !isFileLike) return reply.sendFile("index.html");
       return reply.code(404).send({ error: { code: "not_found", message: "Not found." } });
     });
   }
 
   return app;
+}
+
+/** A path that names a file (has an extension), e.g. /og.jpg or /manifest.webmanifest. */
+const FILE_LIKE = /\.[a-z0-9]{1,12}$/i;
+
+/** Cache policy for files served from web/dist. Exported for tests. */
+export function staticCacheControl(path: string, status: number): string {
+  if (status !== 200) return "no-cache";
+  if (path.startsWith("/assets/")) return "public, max-age=31536000, immutable";
+  if (FILE_LIKE.test(path) && !path.endsWith(".html")) return "public, max-age=86400";
+  return "no-cache";
 }

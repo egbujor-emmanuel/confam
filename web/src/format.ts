@@ -1,8 +1,26 @@
-export const naira = (n: number): string => `₦${Math.round(n).toLocaleString("en-NG")}`;
-export const sats = (n: number): string => `${Math.round(n).toLocaleString("en-NG")} sats`;
-export const satsToNaira = (s: number, ngnPerBtc: number): number => (s * ngnPerBtc) / 100_000_000;
+import type { Lang } from "./i18n.ts";
 
-export function guessNetwork(phone: string): "mtn" | "airtel" | "glo" | "etisalat" | null {
+const locale = (lang: Lang): string => (lang === "fr" ? "fr-FR" : "en-GB");
+
+/** Local money, e.g. "₦2,000", "1 000 F CFA", "GH₵50". Zero-decimal currencies show no decimals. */
+export function money(amount: number, currency: string, lang: Lang = "en"): string {
+  try {
+    return new Intl.NumberFormat(locale(lang), {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: ["XOF", "XAF", "NGN", "UGX", "RWF", "GNF", "TZS"].includes(currency) ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${amount} ${currency}`;
+  }
+}
+
+export const sats = (n: number, lang: Lang = "en"): string => `${Math.round(n).toLocaleString(locale(lang))} sats`;
+export const satsToLocal = (s: number, perBtc: number): number => (s * perBtc) / 100_000_000;
+
+/** Nigerian network from prefix (VTpass flow only; elsewhere the operator is detected by the provider). */
+export function guessNgNetwork(phone: string): "mtn" | "airtel" | "glo" | "etisalat" | null {
   const d = phone.replace(/\D/g, "").replace(/^234/, "0");
   const p = d.startsWith("0") ? d : `0${d}`;
   const t: Record<string, string[]> = {
@@ -15,5 +33,4 @@ export function guessNetwork(phone: string): "mtn" | "airtel" | "glo" | "etisala
   return null;
 }
 
-export const NETWORK_LABEL: Record<string, string> = { mtn: "MTN", airtel: "Airtel", glo: "Glo", etisalat: "9mobile" };
-export const dataServiceFor = (net: string): string => `${net}-data`;
+export const NG_NETWORK_LABEL: Record<string, string> = { mtn: "MTN", airtel: "Airtel", glo: "Glo", etisalat: "9mobile" };

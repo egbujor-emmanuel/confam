@@ -264,6 +264,12 @@ describe("API: static app & headers", () => {
     const missing = await web.inject({ url: "/assets/index-gone.js" });
     expect(missing.statusCode).toBe(404);
     expect(missing.headers["content-type"]).not.toContain("text/html");
+    // Public files: cached a day; a missing one (long extension too) is a 404, never the SPA shell.
+    writeFileSync(join(dist, "og.jpg"), "jpg");
+    expect((await web.inject({ url: "/og.jpg" })).headers["cache-control"]).toBe("public, max-age=86400");
+    const noManifest = await web.inject({ url: "/manifest.webmanifest" });
+    expect(noManifest.statusCode).toBe(404);
+    expect(noManifest.headers["cache-control"]).toBe("no-cache");
     await web.close();
   });
 

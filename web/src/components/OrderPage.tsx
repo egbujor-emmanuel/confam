@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, type AppConfig, type Order } from "../api.ts";
-import { naira, sats, satsToNaira } from "../format.ts";
+import { api, ApiError, type AppConfig, type Order, type OrderState } from "../api.ts";
+import { money, sats, satsToLocal } from "../format.ts";
 import { navigate, useReducedMotion, useWalletBalance } from "../hooks.ts";
+import { useT } from "../i18n.ts";
 import { walletPay } from "../wallet.ts";
+import type { LockVisual } from "./lock3d/scene.ts";
+import { LockCoin } from "./lock3d/LockCoin.tsx";
 import { Qr } from "./Qr.tsx";
 import { Timeline } from "./Timeline.tsx";
 
@@ -12,21 +15,30 @@ type Props = {
   onOpenWallet: () => void;
 };
 
-const TERMINAL = new Set(["completed", "released", "expired"]);
+const TERMINAL = new Set<OrderState>(["completed", "released", "expired"]);
+const VISUAL: Record<OrderState, LockVisual> = {
+  awaiting_payment: "awaiting",
+  locked: "locked",
+  vending: "vending",
+  delivered: "vending",
+  completed: "completed",
+  released: "released",
+  expired: "expired",
+};
 
 export function OrderPage({ orderId, config, onOpenWallet }: Props) {
+  const { lang, t } = useT();
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPaying, setIsPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"invoice" | "token" | null>(null);
   const [receiptValid, setReceiptValid] = useState<boolean | null>(null);
   const startBalance = useRef<number | null>(null);
   const stampRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
   const wallet = useWalletBalance(2500);
 
-  // Poll the order until it reaches a final state.
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -56,7 +68,7 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
     }
   }, [wallet.balance, order?.state]);
 
-  // Verify the signed receipt in the browser (no trust in our own server needed).
+  // Verify the signed receipt in the browser: no need to trust our server.
   useEffect(() => {
     if (!order?.receipt || !config) return;
     let alive = true;
@@ -71,24 +83,23 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
     };
   }, [order?.receipt, config]);
 
-  // Stamp animation on a final state (GSAP loaded lazily; skipped for reduced motion).
   const finalState = order && (order.state === "completed" || order.state === "released") ? order.state : null;
   useEffect(() => {
     if (!finalState || reduced || !stampRef.current) return;
     const el = stampRef.current;
     let tween: { kill: () => void } | null = null;
     void import("gsap").then(({ gsap }) => {
-      tween = gsap.fromTo(el, { scale: 2.2, opacity: 0, rotate: -24 }, { scale: 1, opacity: 0.9, rotate: -12, duration: 0.45, ease: "back.out(2)" });
+      tween = gsap.fromTo(el, { scale: 2.2, opacity: 0, rotate: -24 }, { scale: 1, opacity: 0.92, rotate: -12, duration: 0.45, ease: "back.out(2)", delay: 0.5 });
     });
     return () => tween?.kill();
   }, [finalState, reduced]);
 
-  async function handleWalletPay(invoice: string): Promise<void> {
+  function handleWalletPay(invoice: string): void {
     setPayError(null);
     setIsPaying(true);
     const startedAt = Date.now();
-    // With a hold invoice this promise only settles after delivery (paid) or release (rejected),
-    // so the UI follows the order status instead of waiting on it.
+    // A hold-invoice payment only resolves after delivery (paid) or release (rejected),
+    // so the UI follows the order status instead of waiting on this promise.
     walletPay(invoice)
       .catch((e: unknown) => {
         if (Date.now() - startedAt < 8000) setPayError(e instanceof Error ? e.message : "Your wallet could not pay.");
@@ -96,70 +107,77 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
       .finally(() => setIsPaying(false));
   }
 
-  async function handleCopy(text: string): Promise<void> {
+  async function handleCopy(text: string, what: "invoice" | "token"): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1800);
     } catch {
-      setCopied(false);
+      setCopied(null);
     }
   }
 
   if (!order) {
     return (
       <section className="receipt" aria-busy="true">
-        {error ? <p className="notice error">{error}</p> : <p className="muted">Loading your order…</p>}
+        {error ? <p className="notice error">{error}</p> : <p className="muted">{t.loadingOrder}</p>}
       </section>
     );
   }
 
-  const stamp = order.state === "completed" ? { cls: "ok", text: "Confam" } : order.state === "released" ? { cls: "stop", text: "Not charged" } : null;
-  const expiresInSec = Math.max(0, Math.round((order.invoiceExpiresAt - Date.now()) / 1000));
+  const [headline, detail] = order.deliveredAfterRelease ? t.lateDelivered : (t.headline[order.state] ?? ["", ""]);
+  const stamp = order.state === "completed" ? { cls: "ok", text: t.stampOk } : order.state === "released" ? { cls: "stop", text: t.stampStop } : null;
+  const expiresInMin = Math.max(1, Math.ceil((order.invoiceExpiresAt - Date.now()) / 60000));
   const balanceClass = order.state === "locked" || order.state === "vending" ? "lock" : order.state === "released" ? "ok" : "";
+  const balanceNote =
+    order.state === "locked" || order.state === "vending" ? t.lockedNotSent : order.state === "released" ? t.backWhereStarted : "";
 
   return (
     <>
+      <LockCoin state={VISUAL[order.state]} label={t.lockLabel(headline)} className="order__lock" />
+
       <section className="receipt stamp-host" aria-labelledby="order-headline" aria-live="polite">
         {stamp && (
           <div ref={stampRef} className={`stamp ${stamp.cls}`} aria-hidden="true">
             {stamp.text}
           </div>
         )}
-        <p className="eyebrow">Order {order.id.slice(0, 8)}</p>
-        <h2 id="order-headline">{order.headline}</h2>
-        <p className="muted">{order.detail}</p>
+        <p className="eyebrow">
+          {t.order} {order.id.slice(0, 8)}
+        </p>
+        <h2 id="order-headline">{headline}</h2>
+        <p className="muted">{detail}</p>
         <hr className="dash" />
         <dl className="rows">
           <div>
-            <dt>Item</dt>
+            <dt>{t.item}</dt>
             <dd>{order.product}</dd>
           </div>
           <div>
-            <dt>For</dt>
+            <dt>{t.for}</dt>
             <dd>
               {order.recipient}
               {order.customerName ? ` · ${order.customerName}` : ""}
             </dd>
           </div>
           <div>
-            <dt>Amount</dt>
+            <dt>{t.total}</dt>
             <dd className="money">
-              {naira(order.amountNgn)} · {sats(order.amountSats)}
+              {money(order.amountLocal, order.currency, lang)} · {sats(order.amountSats, lang)}
             </dd>
           </div>
         </dl>
 
         {order.token && (
-          <div className="token-box" role="group" aria-label="Your electricity token">
-            <div className="token">{order.token}</div>
-            {order.units && <div className="units">{order.units}</div>}
-          </div>
-        )}
-        {order.token && (
-          <button type="button" className="btn ghost" onClick={() => handleCopy(order.token!.replace(/\s/g, ""))}>
-            {copied ? "Copied ✓" : "Copy token"}
-          </button>
+          <>
+            <div className="token-box" role="group" aria-label="Token">
+              <div className="token">{order.token}</div>
+              {order.units && <div className="units">{order.units}</div>}
+            </div>
+            <button type="button" className="btn ghost" onClick={() => handleCopy(order.token!.replace(/\s/g, ""), "token")}>
+              {copied === "token" ? t.copied : t.copyToken}
+            </button>
+          </>
         )}
 
         {wallet.connected && wallet.balance !== null && (
@@ -167,18 +185,13 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
             <hr className="dash" />
             <div className={`balance-line ${balanceClass}`}>
               <span>
-                Your wallet{" "}
-                {order.state === "locked" || order.state === "vending"
-                  ? "(sats locked, not sent)"
-                  : order.state === "released"
-                    ? "(back where it started)"
-                    : ""}
+                {t.yourWallet} {balanceNote}
               </span>
-              <span className="money">{sats(wallet.balance)}</span>
+              <span className="money">{sats(wallet.balance, lang)}</span>
             </div>
             {startBalance.current !== null && (
               <p className="hint">
-                Started at {sats(startBalance.current)} ≈ {naira(satsToNaira(startBalance.current, order.rateNgnPerBtc))}
+                {t.startedAt} {sats(startBalance.current, lang)} ≈ {money(satsToLocal(startBalance.current, order.ratePerBtc), order.currency, lang)}
               </p>
             )}
           </>
@@ -188,7 +201,7 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
       {order.state === "awaiting_payment" && order.invoice && (
         <section className="receipt" aria-labelledby="pay-title">
           <p className="eyebrow" id="pay-title">
-            Pay {sats(order.amountSats)}
+            {t.pay(sats(order.amountSats, lang))}
           </p>
           <Qr value={order.invoice} label="Lightning invoice QR code" />
           <p className="invoice-text">{order.invoice}</p>
@@ -196,18 +209,18 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
             {wallet.connected ? (
               <button type="button" className="btn lime" onClick={() => handleWalletPay(order.invoice!)} disabled={isPaying}>
                 {isPaying ? <span className="spinner" aria-hidden="true" /> : null}
-                {isPaying ? "Locking your sats…" : "Pay with my Confam wallet"}
+                {isPaying ? t.locking : t.payWithWallet}
               </button>
             ) : config?.testWallet.enabled ? (
               <button type="button" className="btn lime" onClick={onOpenWallet}>
-                Get a free test wallet to pay
+                {t.getTestWallet}
               </button>
             ) : null}
             <a className="btn ghost" href={`lightning:${order.invoice}`}>
-              Open in my Lightning wallet
+              {t.openWallet}
             </a>
-            <button type="button" className="btn ghost" onClick={() => handleCopy(order.invoice!)}>
-              {copied ? "Copied ✓" : "Copy invoice"}
+            <button type="button" className="btn ghost" onClick={() => handleCopy(order.invoice!, "invoice")}>
+              {copied === "invoice" ? t.copied : t.copyInvoice}
             </button>
           </div>
           {payError && (
@@ -215,13 +228,13 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
               {payError}
             </p>
           )}
-          <p className="hint">Invoice expires in about {Math.ceil(expiresInSec / 60)} min. Paying only locks your sats.</p>
+          <p className="hint">{t.expiresIn(expiresInMin)}</p>
         </section>
       )}
 
       <section className="receipt" aria-labelledby="progress-title">
         <p className="eyebrow" id="progress-title">
-          Progress
+          {t.progress}
         </p>
         <Timeline order={order} />
       </section>
@@ -229,20 +242,18 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
       {order.receipt && (
         <section className="receipt" aria-labelledby="proof-title">
           <p className="eyebrow" id="proof-title">
-            Signed receipt
+            {t.signedReceipt}
           </p>
-          <p>
-            {receiptValid === null ? "Checking signature…" : receiptValid ? "✓ Signature verified in your browser" : "✕ Signature could not be verified"}
-          </p>
-          <p className="hint" style={{ wordBreak: "break-all" }}>
-            Signed by {config?.receipts.npub} · payment hash {(order.receipt.tags.find((t) => t[0] === "x")?.[1] ?? "").slice(0, 16)}…
+          <p>{receiptValid === null ? t.checkingSig : receiptValid ? t.sigOk : t.sigBad}</p>
+          <p className="hint breakall">
+            {t.signedBy} {config?.receipts.npub}
           </p>
         </section>
       )}
 
       <div className="btn-row">
-        <button type="button" className="btn ghost" style={{ background: "var(--paper)" }} onClick={() => navigate("#/")}>
-          Buy something else
+        <button type="button" className="btn paper" onClick={() => navigate("#/")}>
+          {t.buyAnother}
         </button>
       </div>
     </>
