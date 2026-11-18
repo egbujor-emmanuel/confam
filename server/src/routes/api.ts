@@ -62,6 +62,17 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     return { ok: lnHealth.up, lightning: lnHealth.up ? "up" : "down", ...(lnHealth.up ? {} : { detail: lnHealth.detail }) };
   });
 
+  // Public metrics (aggregates only): delivery rate, releases by reason, time to delivery, and the
+  // guarantee itself (charged without delivery, always 0). Cached briefly; cheap to compute.
+  let statsCache: { at: number; days: number; body: unknown } | null = null;
+  app.get<{ Querystring: { days?: string } }>("/api/stats", async (req) => {
+    const days = parse(z.coerce.number().int().min(1).max(90).default(7), req.query.days);
+    if (statsCache && statsCache.days === days && Date.now() - statsCache.at < 30_000) return statsCache.body;
+    const body = { windowDays: days, generatedAt: new Date().toISOString(), ...deps.store.stats(Date.now() - days * 86_400_000) };
+    statsCache = { at: Date.now(), days, body };
+    return body;
+  });
+
   app.get("/api/config", async () => ({
     lightning: { backend: deps.ln.kind, network: cfg.LIGHTNING_NETWORK_LABEL },
     providers: {

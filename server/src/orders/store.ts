@@ -233,6 +233,52 @@ export class OrderStore {
       .run(...keys.map((k) => toSql(fields[k])), id);
   }
 
+  /**
+   * Aggregates for /api/stats over orders created since `sinceMs`. Counts only: no phone numbers,
+   * meters, names or payment hashes leave the database through this.
+   */
+  stats(sinceMs: number): OrderStats {
+    const one = (sql: string): number => Number((this.db.prepare(sql).get(sinceMs) as { n: number | null }).n ?? 0);
+    const created = one("SELECT COUNT(*) AS n FROM orders WHERE created_at >= ?");
+    const locked = one("SELECT COUNT(*) AS n FROM orders WHERE created_at >= ? AND locked_at IS NOT NULL");
+    const completed = one("SELECT COUNT(*) AS n FROM orders WHERE created_at >= ? AND state = 'completed'");
+    const releases = this.db
+      .prepare("SELECT release_reason AS r, COUNT(*) AS n FROM orders WHERE created_at >= ? AND state = 'released' GROUP BY release_reason")
+      .all(sinceMs) as { r: string | null; n: number }[];
+    const released = (reason: string): number => Number(releases.find((x) => x.r === reason)?.n ?? 0);
+    const times = (
+      this.db
+        .prepare(
+          "SELECT (delivered_at - locked_at) / 1000.0 AS s FROM orders WHERE created_at >= ? AND delivered_at IS NOT NULL AND locked_at IS NOT NULL ORDER BY s",
+        )
+        .all(sinceMs) as { s: number }[]
+    ).map((x) => x.s);
+    const groupBy = (column: "country_code" | "category"): Record<string, number> =>
+      Object.fromEntries(
+        (this.db.prepare(`SELECT ${column} AS k, COUNT(*) AS n FROM orders WHERE created_at >= ? GROUP BY ${column} ORDER BY k`).all(sinceMs) as { k: string; n: number }[]).map(
+          (x) => [x.k, Number(x.n)],
+        ),
+      );
+    return {
+      ordersCreated: created,
+      paymentsLocked: locked,
+      completed,
+      released: {
+        total: releases.reduce((sum, x) => sum + Number(x.n), 0),
+        deliveryFailed: released("delivery_failed"),
+        deliveryUnconfirmed: released("delivery_unconfirmed"),
+        amountMismatch: released("amount_mismatch"),
+        lockLost: released("lock_lost"),
+      },
+      deliveryRate: locked > 0 ? completed / locked : null,
+      medianSecondsToDelivery: median(times),
+      deliveredAfterRelease: one("SELECT COUNT(*) AS n FROM orders WHERE created_at >= ? AND recon_state = 'delivered_after_release'"),
+      chargedWithoutDelivery: one("SELECT COUNT(*) AS n FROM orders WHERE created_at >= ? AND state = 'completed' AND delivered_at IS NULL"),
+      byCountry: groupBy("country_code"),
+      byCategory: groupBy("category"),
+    };
+  }
+
   events(orderId: string): OrderEvent[] {
     const rows = this.db
       .prepare("SELECT order_id, at, from_state, to_state, note FROM order_events WHERE order_id = ? ORDER BY seq ASC")
@@ -319,4 +365,29 @@ function fromRow(row: Row): Order {
   const out: Record<string, unknown> = {};
   for (const [key, col] of Object.entries(COLUMNS)) out[key] = row[col] ?? null;
   return out as unknown as Order;
+}
+
+export interface OrderStats {
+  ordersCreated: number;
+  /** Orders whose hold invoice was paid (sats locked). */
+  paymentsLocked: number;
+  completed: number;
+  released: { total: number; deliveryFailed: number; deliveryUnconfirmed: number; amountMismatch: number; lockLost: number };
+  /** completed / paymentsLocked; null when nothing was locked. */
+  deliveryRate: number | null;
+  /** From "sats locked" to "provider confirmed delivery". */
+  medianSecondsToDelivery: number | null;
+  /** Provider confirmed after the lock was released: delivered free, the operator absorbs the cost. */
+  deliveredAfterRelease: number;
+  /** Completed without a recorded delivery. The guarantee says this is always 0. */
+  chargedWithoutDelivery: number;
+  byCountry: Record<string, number>;
+  byCategory: Record<string, number>;
+}
+
+function median(sorted: readonly number[]): number | null {
+  if (sorted.length === 0) return null;
+  const mid = Math.floor(sorted.length / 2);
+  const value = sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return Math.round(value * 10) / 10;
 }

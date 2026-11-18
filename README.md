@@ -18,7 +18,8 @@ Everything runs on test networks: test sats and provider sandboxes.
 
 1. Open **https://confam-qxdh.onrender.com** on your phone or laptop.
 2. Tap **⚡ Connect wallet** (top right) → **Get a free test wallet**. You get 25,000 test sats.
-3. Pick your country, then a product, and pay with **Pay with my Confam wallet**. Watch the lock:
+3. Pick your country, then a product (in Nigeria, tap **Use test number** or **Use test meter** to fill
+   the sandbox values), and pay with **Pay with my Confam wallet**. Watch the lock:
    *Payment locked → Buying it for you → Provider confirmed delivery → Payment completed*.
 4. At the end you get a **signed receipt** that your browser verifies on the spot (Nostr signature).
 
@@ -54,6 +55,33 @@ so the locked amount always covers the purchase.
 
 ---
 
+## Who it's for
+
+**Primary user: someone in Nigeria or Senegal who holds sats and tops up a phone or a prepaid meter
+several times a week.** A freelancer paid in Bitcoin, a student saving in it, a family keeping the
+Woyofal meter running.
+
+| | Today | With Confam |
+|---|---|---|
+| Airtime / data | Sell sats to someone on a P2P desk, wait for the naira transfer, then buy airtime in a bank app | Pay the invoice from a Lightning wallet; the top-up lands in about 20 seconds |
+| Electricity token | Buy the token; if the vendor takes the money and no token comes, chase a refund for days ("debited but not credited") | The sats stay locked until the token exists; no token, the lock opens by itself |
+| When it fails | A support ticket, a screenshot, a wait | Nothing to chase: the payment never completed |
+
+## Reach
+
+- **Ceiling (measured):** 200.3 million active mobile subscriptions in Nigeria in September 2026
+  ([NCC industry statistics](https://ncc.gov.ng/market-data-reports/industry-statistics)), and 1.63 million
+  Woyofal prepaid customers in Senegal (Senelec's count at 31 August 2023, reported by *Le Soleil*).
+- **Bitcoin users there (measured):** Nigeria ranks 6th in the
+  [Chainalysis 2025 Global Crypto Adoption Index](https://www.chainalysis.com/blog/2025-global-crypto-adoption-index/);
+  Sub-Saharan Africa's on-chain value grew 52% to $205B
+  ([Chainalysis](https://www.chainalysis.com/blog/subsaharan-africa-crypto-adoption-2025/)).
+- **Our target for the first three months live (an assumption we will measure, not a result):**
+  500 weekly payers making about 2 top-ups each, so roughly **1,000 orders a week**, starting with
+  Bitcoin communities in Lagos and Dakar, then 18 more countries for airtime the provider already covers.
+
+---
+
 ## Constraints
 
 - **It runs in test mode.** Payments use test sats from a Lightning test wallet
@@ -72,6 +100,38 @@ so the locked amount always covers the purchase.
   lock loads after the page and falls back to a still image on 2G, data-saver or low-memory phones.
 - **Every payment waits for the provider:** a purchase settles only on the provider's confirmation and
   is released if none arrives within 90 seconds.
+
+---
+
+## Metrics we track (live)
+
+**https://confam-qxdh.onrender.com/api/stats?days=7** computes these from the order database on every
+request (counts only: no phone numbers, meters or payment details):
+
+| Metric | Why it matters |
+|---|---|
+| `chargedWithoutDelivery` | The guarantee itself. Completed without a confirmed delivery. Must always be **0**. |
+| `deliveryRate` | Completed ÷ payments locked: how often the provider actually delivers. |
+| `medianSecondsToDelivery` | From "sats locked" to "provider confirmed": the wait the customer feels. |
+| `released` (by reason) | Failed, unconfirmed at the deadline, wrong amount, lock lost: which provider problems to fix first. |
+| `deliveredAfterRelease` | Delivered after the lock opened, so the customer got it free and Confam absorbed the cost. |
+| `byCountry`, `byCategory` | Where demand is, to decide which providers and countries come next. |
+
+Alongside these, the server logs an `alert` when a failure is about Confam's own provider account (low
+float, rejected keys, product not whitelisted) rather than the customer's order.
+
+## Next iteration
+
+1. **Real money:** an Alby Hub node issuing hold invoices over NWC, a funded live VTpass account and
+   DEXPAY production approval (configuration only, see Constraints), plus an alert when provider float
+   drops below a day of orders.
+2. **More bills where people already pay them:** TV (DStv, GOtv, StarTimes) and internet bundles through
+   the same VTpass API, and Senegal's Senelec postpaid electricity and SenEau water bills, which DEXPAY
+   already lists (`SENELEC_SN_BILL`, `SENEAU_SN_BILL`).
+3. **"Keep my meter topped up":** a recurring order paid from a budget the customer sets in their wallet
+   (NWC budgets), still settled only after each token is delivered.
+4. **Agents:** a reseller mode so a roadside airtime vendor can accept sats for a top-up with the same
+   delivered-or-released guarantee.
 
 ---
 

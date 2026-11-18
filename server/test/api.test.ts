@@ -392,6 +392,17 @@ describe("API: rate limits use the real client address", () => {
   });
 });
 
+describe("API: stats", () => {
+  it("serves aggregate metrics only, with a bounded window", async () => {
+    const r = await app.inject({ method: "GET", url: "/api/stats?days=30" });
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    expect(body).toMatchObject({ windowDays: 30, chargedWithoutDelivery: 0 });
+    expect(JSON.stringify(body)).not.toMatch(/phone|meter|preimage|payment_hash|invoice/i);
+    expect((await app.inject({ method: "GET", url: "/api/stats?days=1000" })).statusCode).toBe(400);
+  });
+});
+
 describe("API: health", () => {
   it("is cheap by default and checks the Lightning wallet with ?deep=1", async () => {
     expect((await app.inject({ method: "GET", url: "/api/health" })).json()).toEqual({ ok: true });
