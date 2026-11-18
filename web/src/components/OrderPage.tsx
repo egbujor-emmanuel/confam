@@ -87,11 +87,16 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
   useEffect(() => {
     if (!finalState || reduced || !stampRef.current) return;
     const el = stampRef.current;
-    let tween: { kill: () => void } | null = null;
+    let tween: { revert: () => unknown } | null = null;
+    let isCancelled = false;
     void import("gsap").then(({ gsap }) => {
-      tween = gsap.fromTo(el, { scale: 2.2, opacity: 0, rotate: -24 }, { scale: 1, opacity: 0.92, rotate: -12, duration: 0.45, ease: "back.out(2)", delay: 0.5 });
+      if (isCancelled) return; // unmounted (or React re-ran the effect) before GSAP loaded
+      tween = gsap.fromTo(el, { scale: 1.6, opacity: 0, rotate: -16 }, { scale: 1, opacity: 0.92, rotate: -6, duration: 0.45, ease: "back.out(2)", delay: 0.5 });
     });
-    return () => tween?.kill();
+    return () => {
+      isCancelled = true;
+      tween?.revert(); // back to the stylesheet's resting stamp, never stuck half-animated
+    };
   }, [finalState, reduced]);
 
   function handleWalletPay(invoice: string): void {
@@ -136,15 +141,17 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
     <>
       <LockCoin state={VISUAL[order.state]} label={t.lockLabel(headline)} className="order__lock" />
 
-      <section className="receipt stamp-host" aria-labelledby="order-headline" aria-live="polite">
-        {stamp && (
-          <div ref={stampRef} className={`stamp ${stamp.cls}`} aria-hidden="true">
-            {stamp.text}
-          </div>
-        )}
-        <p className="eyebrow">
-          {t.order} {order.id.slice(0, 8)}
-        </p>
+      <section className="receipt" aria-labelledby="order-headline" aria-live="polite">
+        <div className="receipt__head">
+          <p className="eyebrow">
+            {t.order} {order.id.slice(0, 8)}
+          </p>
+          {stamp && (
+            <div ref={stampRef} className={`stamp ${stamp.cls}`} aria-hidden="true">
+              {stamp.text}
+            </div>
+          )}
+        </div>
         <h2 id="order-headline">{headline}</h2>
         <p className="muted">{detail}</p>
         <hr className="dash" />

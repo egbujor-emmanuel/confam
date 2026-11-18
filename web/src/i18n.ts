@@ -108,6 +108,8 @@ const en = {
   } as Record<string, [string, string]>,
   // Wallet
   connectWallet: "Connect wallet",
+  walletAria: "Your wallet",
+  connectShort: "Connect",
   walletTitle: "Your wallet",
   walletConnectedNote: "Connected with Nostr Wallet Connect. Your keys stay with your wallet, not with Confam.",
   done: "Done",
@@ -231,6 +233,8 @@ const fr: Dict = {
     expired: ["Facture expirée", "Rien n'a été débité"],
   },
   connectWallet: "Connecter",
+  walletAria: "Votre portefeuille",
+  connectShort: "Connecter",
   walletTitle: "Votre portefeuille",
   walletConnectedNote: "Connecté via Nostr Wallet Connect. Vos clés restent dans votre portefeuille, pas chez Confam.",
   done: "Terminé",

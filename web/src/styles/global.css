@@ -41,6 +41,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+/* Safety net: nothing (including an entrance animation) may make the page scroll sideways. */
+body { overflow-x: clip; }
 /* Solid base on <html> so long pages never reveal white (iOS ignores background-attachment: fixed). */
 html { background: var(--bg-deep); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 body {
@@ -89,6 +91,25 @@ main { display: block; }
 .wallet-chip:hover { background: rgba(255, 255, 255, 0.12); }
 .wallet-chip:active { transform: scale(0.96); }
 .wallet-chip .num { font-family: var(--font-mono); }
+.wallet-chip .label-short { display: none; }
+/* Narrow phones. Measured widths: brand 127, language switch 88, "Connect wallet" chip 152, gaps 20,
+   so the full bar needs 387px of the (viewport - 32px) available. Compact sizes save ~33px; the short
+   label ("Connect" ~100px, "Connecter" ~114px) and finally the logo mark alone cover the smallest
+   phones. The wallet chip's accessible name always carries the full text. */
+@media (max-width: 440px) {
+  .topbar { gap: 8px; }
+  .brand { font-size: 1.15rem; gap: 8px; }
+  .lang-switch button { min-width: 34px; }
+  .wallet-chip { padding: 8px 10px; gap: 6px; }
+  .wallet-chip .unit { display: none; }
+}
+@media (max-width: 389px) {
+  .wallet-chip .label-long { display: none; }
+  .wallet-chip .label-short { display: inline; }
+}
+@media (max-width: 352px) {
+  .brand-name { display: none; }
+}
 
 /* ---------- Hero ---------- */
 /* Mobile: headline spans the width; the lock sits beside the paragraph. */
@@ -262,11 +283,11 @@ main { display: block; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(183, 121, 31, 0.35); } 50% { box-shadow: 0 0 0 8px rgba(183, 121, 31, 0); } }
 
 /* ---------- Rubber stamp ---------- */
-.stamp-host { position: relative; }
+/* In the card's header row (not absolutely placed), so it can never hang off the card or the screen. */
 .stamp {
-  position: absolute; right: 12px; top: -10px; transform: rotate(-12deg); border: 4px double currentColor; border-radius: 10px; padding: 4px 12px;
-  font-family: var(--font-display); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-size: 1.15rem; opacity: 0.92;
-  pointer-events: none; mix-blend-mode: multiply; background: rgba(251, 248, 241, 0.6);
+  margin-left: auto; transform: rotate(-6deg); border: 3px double currentColor; border-radius: 8px; padding: 2px 10px;
+  font-family: var(--font-display); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 1rem; line-height: 1.3;
+  white-space: nowrap; opacity: 0.92; pointer-events: none; mix-blend-mode: multiply; background: rgba(251, 248, 241, 0.6);
 }
 .stamp.ok { color: var(--ok); }
 .stamp.stop { color: var(--stop); }

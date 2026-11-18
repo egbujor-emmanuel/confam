@@ -51,10 +51,13 @@ export function App() {
   else page = <Home config={config} countries={countries} country={country} onCountry={onCountry} />;
 
   // Compact in the header (exact balance lives in the wallet sheet) so the bar fits a 360px phone.
-  const walletLabel = wallet.connected
-    ? wallet.balance === null
-      ? "…"
-      : `${new Intl.NumberFormat(lang, { notation: "compact", maximumFractionDigits: 1 }).format(wallet.balance)} sats`
+  // Below 400px the "sats" unit is hidden visually; the accessible name always carries it.
+  const compactBalance =
+    wallet.connected && wallet.balance !== null
+      ? new Intl.NumberFormat(lang, { notation: "compact", maximumFractionDigits: 1 }).format(wallet.balance)
+      : null;
+  const walletAria = wallet.connected
+    ? `${t.walletAria}: ${wallet.balance === null ? "…" : `${new Intl.NumberFormat(lang).format(wallet.balance)} sats`}`
     : t.connectWallet;
   const anySandbox = config ? Object.values(config.providers).some((p) => p.configured && p.sandbox) : false;
 
@@ -64,7 +67,7 @@ export function App() {
         <header className="topbar">
           <a className="brand" href="#/" aria-label="Confam">
             <img className="brand-mark" src="/icons/brand-96.webp" width="34" height="34" alt="" decoding="async" />
-            Confam
+            <span className="brand-name">Confam</span>
           </a>
           <div className="topbar__actions">
             <div className="lang-switch" role="group" aria-label="Language">
@@ -74,9 +77,19 @@ export function App() {
                 </button>
               ))}
             </div>
-            <button type="button" className="wallet-chip" onClick={() => setIsWalletOpen(true)} aria-haspopup="dialog">
+            <button type="button" className="wallet-chip" onClick={() => setIsWalletOpen(true)} aria-haspopup="dialog" aria-label={walletAria}>
               <span aria-hidden="true">⚡</span>
-              <span className={wallet.connected ? "num" : undefined}>{walletLabel}</span>
+              {wallet.connected ? (
+                <span className="num" aria-hidden="true">
+                  {compactBalance ?? "…"}
+                  {compactBalance !== null && <span className="unit"> sats</span>}
+                </span>
+              ) : (
+                <span aria-hidden="true">
+                  <span className="label-long">{t.connectWallet}</span>
+                  <span className="label-short">{t.connectShort}</span>
+                </span>
+              )}
             </button>
           </div>
         </header>
