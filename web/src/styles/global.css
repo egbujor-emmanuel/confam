@@ -231,6 +231,13 @@ main { display: block; }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .chip:hover { border-color: var(--ink); }
 .chip:active { transform: scale(0.96); }
+.chip--small { min-height: 36px; padding: 4px 12px; font-size: var(--text-xs); justify-self: start; }
+/* Errors say what to do, next to the field (the input border turns red too). */
+.field-error { font-size: var(--text-xs); font-weight: 700; color: var(--stop); }
+.input[aria-invalid="true"] { border-color: var(--stop); }
+.input[aria-invalid="true"]:focus { box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.15); }
+.submit-hint { text-align: center; margin: 8px 0 0; }
+.submit-hint:empty { margin: 0; min-height: 0; } /* stays in the DOM so screen readers announce changes */
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 56px; border: 0; border-radius: 14px;
@@ -277,7 +284,10 @@ main { display: block; }
 .tl-step[data-status="done"] .tl-dot { background: var(--ok); border-color: var(--ok); color: #fff; }
 .tl-step[data-status="active"] .tl-dot { border-color: var(--lock); color: var(--lock); animation: pulse 1.4s ease-in-out infinite; }
 .tl-step[data-status="stopped"] .tl-dot { background: var(--stop); border-color: var(--stop); color: #fff; }
-.tl-step[data-status="todo"] { opacity: 0.45; }
+/* Upcoming steps read as "not yet" by weight and a dashed dot, not by fading the text: --ink-soft on
+   paper stays above 4.5:1 contrast. */
+.tl-step[data-status="todo"] .tl-title { color: var(--ink-soft); font-weight: 600; }
+.tl-step[data-status="todo"] .tl-dot { border-style: dashed; color: var(--ink-soft); }
 .tl-title { font-weight: 800; }
 .tl-note { font-size: var(--text-sm); color: var(--ink-soft); }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(183, 121, 31, 0.35); } 50% { box-shadow: 0 0 0 8px rgba(183, 121, 31, 0); } }

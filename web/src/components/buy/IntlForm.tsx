@@ -3,7 +3,7 @@ import { api, ApiError, type Country, type IntlOffer, type IntlOperator } from "
 import { money } from "../../format.ts";
 import { navigate } from "../../hooks.ts";
 import { useT } from "../../i18n.ts";
-import { AmountChips, QuoteRows, SubmitBar } from "./shared.tsx";
+import { AmountChips, FieldError, QuoteRows, SubmitBar } from "./shared.tsx";
 
 type Props = {
   country: Country;
@@ -81,6 +81,17 @@ export function IntlForm({ country, category, sandbox }: Props) {
   const inRange = offer !== null && (offer.isFixed || (amountLocal >= (offer.minLocal ?? 0) && amountLocal <= (offer.maxLocal ?? 0)));
   const digits = phone.replace(/\D/g, "");
   const canSubmit = digits.length >= 7 && Boolean(operatorId) && inRange && amountLocal > 0;
+  const rangeText =
+    offer && !offer.isFixed && offer.minLocal !== null && offer.maxLocal !== null
+      ? ([money(offer.minLocal, currency, lang), money(offer.maxLocal, currency, lang)] as const)
+      : null;
+  const amountError = rangeText && amount !== "" && !inRange ? t.amountOutOfRange(...rangeText) : null;
+  const missing =
+    digits.length < 7 ? t.needPhone
+    : !operatorId ? t.needNetwork
+    : category === "data" && !offer ? t.needPlan
+    : !inRange || amountLocal <= 0 ? (rangeText ? t.needAmount(...rangeText) : null)
+    : null;
   const quick = offer && !offer.isFixed && offer.minLocal !== null && offer.maxLocal !== null ? quickAmounts(offer.minLocal, offer.maxLocal) : [];
 
   async function handleSubmit(e: FormEvent): Promise<void> {
@@ -141,12 +152,13 @@ export function IntlForm({ country, category, sandbox }: Props) {
             className="input mono"
             inputMode="decimal"
             value={amount}
+            aria-invalid={amountError ? true : undefined}
+            aria-describedby={amountError ? "amount-error" : "amount-range"}
             onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, "").slice(0, 9))}
           />
           <AmountChips amounts={quick} value={amount} currency={currency} onPick={setAmount} />
-          {offer.minLocal !== null && offer.maxLocal !== null && (
-            <span className="hint">{t.range(money(offer.minLocal, currency, lang), money(offer.maxLocal, currency, lang))}</span>
-          )}
+          <FieldError id="amount-error" message={amountError} />
+          {!amountError && rangeText && <span id="amount-range" className="hint">{t.range(...rangeText)}</span>}
         </div>
       )}
 
@@ -167,7 +179,7 @@ export function IntlForm({ country, category, sandbox }: Props) {
       )}
 
       <QuoteRows amount={inRange ? amountLocal : 0} currency={currency} intl={offer ? { operatorId, category, variationCode: offer.variationCode } : null} />
-      <SubmitBar canSubmit={canSubmit} isBusy={isBusy} error={error} />
+      <SubmitBar canSubmit={canSubmit} isBusy={isBusy} error={error} missing={missing} />
     </form>
   );
 }

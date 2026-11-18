@@ -39,6 +39,9 @@ export function LockCoin({ state, label, className }: Props) {
   const sceneRef = useRef<LockCoinScene | null>(null);
   const reduced = useReducedMotion();
   const [mode, setMode] = useState<"pending" | "3d" | "svg">("pending");
+  // The latest state, read when the lazily loaded scene appears (the order may have moved on by then).
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     if (!canAfford3d()) {
@@ -51,17 +54,19 @@ export function LockCoin({ state, label, className }: Props) {
         .then(({ createLockCoinScene }) => {
           if (disposed || !canvasRef.current) return;
           sceneRef.current = createLockCoinScene(canvasRef.current, reduced);
-          sceneRef.current.setState(state);
+          sceneRef.current.setState(stateRef.current);
           setMode("3d");
         })
         .catch(() => !disposed && setMode("svg"));
     };
     // Load after first paint so the 3D never competes with the page itself.
-    const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
-    const handle = idle ? idle(start) : window.setTimeout(start, 200);
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number; cancelIdleCallback?: (h: number) => void };
+    const hasIdle = typeof w.requestIdleCallback === "function";
+    const handle = hasIdle ? w.requestIdleCallback!(start) : window.setTimeout(start, 200);
     return () => {
       disposed = true;
-      if (!idle) window.clearTimeout(handle);
+      if (hasIdle) w.cancelIdleCallback?.(handle);
+      else window.clearTimeout(handle);
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };

@@ -1,9 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { api, ApiError, type Country, type MeterInfo } from "../../api.ts";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { api, ApiError, type Country } from "../../api.ts";
 import { money, sats } from "../../format.ts";
 import { navigate } from "../../hooks.ts";
 import { useT } from "../../i18n.ts";
-import { AmountChips, SubmitBar } from "./shared.tsx";
+import { AmountChips, FieldError, SubmitBar, useMeterCheck } from "./shared.tsx";
 
 type Props = {
   country: Country;
@@ -18,8 +18,6 @@ const QUICK = [1000, 2000, 5000, 10_000];
 export function WoyofalForm({ country, sandbox }: Props) {
   const { lang, t } = useT();
   const [meterNumber, setMeterNumber] = useState("");
-  const [meter, setMeter] = useState<MeterInfo | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState<{ fee: number; amountSats: number } | null>(null);
@@ -29,8 +27,9 @@ export function WoyofalForm({ country, sandbox }: Props) {
   const amountXof = Number(amount);
   const inRange = Number.isInteger(amountXof) && amountXof >= MIN_XOF && amountXof <= MAX_XOF;
 
-  // A different meter number needs a new check.
-  useEffect(() => setMeter(null), [meterNumber]);
+  const verify = useCallback(() => api.verifyWoyofal(meterNumber), [meterNumber]);
+  const { meter, error: meterError, isVerifying, check: handleVerifyMeter } = useMeterCheck(meterNumber, verify, "Could not check that meter.", meterNumber.length >= 11);
+  const canCheckMeter = meterNumber.length >= 6 && !isVerifying;
 
   // Exact quote (recharge + DEXPAY's fee), debounced.
   useEffect(() => {
@@ -48,18 +47,6 @@ export function WoyofalForm({ country, sandbox }: Props) {
       clearTimeout(timer);
     };
   }, [amountXof, inRange]);
-
-  async function handleVerifyMeter(): Promise<void> {
-    setError(null);
-    setIsVerifying(true);
-    try {
-      setMeter(await api.verifyWoyofal(meterNumber));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not check that meter.");
-    } finally {
-      setIsVerifying(false);
-    }
-  }
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault();
@@ -82,7 +69,11 @@ export function WoyofalForm({ country, sandbox }: Props) {
     }
   }
 
-  const canSubmit = meter !== null && inRange && phone.replace(/\D/g, "").length >= 7;
+  const phoneOk = phone.replace(/\D/g, "").length >= 7;
+  const canSubmit = meter !== null && inRange && phoneOk;
+  const rangeText = [money(MIN_XOF, "XOF", lang), money(MAX_XOF, "XOF", lang)] as const;
+  const amountError = amount !== "" && !inRange ? t.amountOutOfRange(...rangeText) : null;
+  const missing = !meter ? t.needMeter : !phoneOk ? t.needPhone : !inRange ? t.needAmount(...rangeText) : null;
 
   return (
     <form onSubmit={handleSubmit} noValidate>
@@ -97,8 +88,14 @@ export function WoyofalForm({ country, sandbox }: Props) {
           inputMode="numeric"
           autoComplete="off"
           value={meterNumber}
+          aria-invalid={meterError ? true : undefined}
+          aria-describedby={meterError ? "meter-error" : undefined}
           onChange={(e) => setMeterNumber(e.target.value.replace(/\D/g, "").slice(0, 20))}
+          onBlur={() => {
+            if (!meter && canCheckMeter) void handleVerifyMeter();
+          }}
         />
+        <FieldError id="meter-error" message={meterError} />
         {sandbox && <span className="hint">{t.sandboxWoyofal}</span>}
       </div>
       {meter ? (
@@ -107,7 +104,7 @@ export function WoyofalForm({ country, sandbox }: Props) {
           {meter.address ? ` · ${meter.address}` : ""}
         </p>
       ) : (
-        <button type="button" className="btn ghost" disabled={meterNumber.length < 6 || isVerifying} onClick={handleVerifyMeter}>
+        <button type="button" className="btn ghost" disabled={!canCheckMeter} onClick={() => void handleVerifyMeter()}>
           {isVerifying ? <span className="spinner" aria-hidden="true" /> : null}
           {isVerifying ? t.checkingMeter : t.checkMeter}
         </button>
@@ -136,10 +133,13 @@ export function WoyofalForm({ country, sandbox }: Props) {
           className="input mono"
           inputMode="numeric"
           value={amount}
+          aria-invalid={amountError ? true : undefined}
+          aria-describedby={amountError ? "amount-error" : "amount-range"}
           onChange={(e) => setAmount(e.target.value.replace(/\D/g, "").slice(0, 6))}
         />
         <AmountChips amounts={QUICK} value={amount} currency="XOF" onPick={setAmount} />
-        <span className="hint">{t.range(money(MIN_XOF, "XOF", lang), money(MAX_XOF, "XOF", lang))}</span>
+        <FieldError id="amount-error" message={amountError} />
+        {!amountError && <span id="amount-range" className="hint">{t.range(...rangeText)}</span>}
       </div>
 
       {inRange && (
@@ -158,7 +158,7 @@ export function WoyofalForm({ country, sandbox }: Props) {
           </div>
         </dl>
       )}
-      <SubmitBar canSubmit={canSubmit} isBusy={isBusy} error={error} />
+      <SubmitBar canSubmit={canSubmit} isBusy={isBusy} error={error} missing={missing} />
     </form>
   );
 }

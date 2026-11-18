@@ -19,10 +19,21 @@ export function App() {
   const [isWalletOpen, setIsWalletOpen] = useState(false);
   const wallet = useWalletBalance(5000);
 
-  useEffect(() => {
+  const [isLoadFailed, setIsLoadFailed] = useState(false);
+
+  const loadBasics = useCallback(() => {
+    setIsLoadFailed(false);
     api.config().then(setConfig).catch(() => setConfig(null));
-    api.countries().then(setCountries).catch(() => setCountries([]));
+    api
+      .countries()
+      .then(setCountries)
+      .catch(() => {
+        setCountries([]);
+        setIsLoadFailed(true); // say so and offer a retry, never an empty page
+      });
   }, []);
+
+  useEffect(() => loadBasics(), [loadBasics]);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -46,7 +57,7 @@ export function App() {
   const buyCategory = buyMatch && CATEGORIES.includes(buyMatch[1] as Category) ? (buyMatch[1] as Category) : null;
 
   let page;
-  if (orderMatch?.[1]) page = <OrderPage orderId={orderMatch[1]} config={config} onOpenWallet={() => setIsWalletOpen(true)} />;
+  if (orderMatch?.[1]) page = <OrderPage key={orderMatch[1]} orderId={orderMatch[1]} config={config} onOpenWallet={() => setIsWalletOpen(true)} />;
   else if (buyCategory) page = <BuyForm category={buyCategory} config={config} countries={countries} country={country} onCountry={onCountry} />;
   else page = <Home config={config} countries={countries} country={country} onCountry={onCountry} />;
 
@@ -94,7 +105,17 @@ export function App() {
           </div>
         </header>
 
-        <main>{page}</main>
+        <main>
+          {isLoadFailed && countries.length === 0 && (
+            <div className="notice error" role="alert">
+              <p>{t.loadFailed}</p>
+              <button type="button" className="btn paper" onClick={loadBasics}>
+                {t.retry}
+              </button>
+            </div>
+          )}
+          {page}
+        </main>
 
         <footer className="footer">
           <p>

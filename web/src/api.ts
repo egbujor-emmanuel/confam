@@ -105,13 +105,19 @@ export class ApiError extends Error {
   }
 }
 
+/** On a slow 3G link a reply can take seconds; past this, say so instead of spinning forever. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     // Only declare JSON when there is a body: Fastify rejects an empty body sent as application/json.
     const headers = init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers;
-    res = await fetch(path, { ...init, headers });
-  } catch {
+    res = await fetch(path, { ...init, headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiError(0, "timeout", "Confam is taking too long to answer. Check your connection and try again.");
+    }
     throw new ApiError(0, "offline", "You seem to be offline. Check your connection and try again.");
   }
   const body = (await res.json().catch(() => null)) as { error?: { code: string; message: string } } | null;

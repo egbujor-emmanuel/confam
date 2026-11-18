@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type AppConfig, type Order, type OrderState } from "../api.ts";
-import { money, sats, satsToLocal } from "../format.ts";
+import { displayProduct, displayRecipient, money, sats, satsToLocal } from "../format.ts";
 import { navigate, useReducedMotion, useWalletBalance } from "../hooks.ts";
 import { useT } from "../i18n.ts";
 import { walletPay } from "../wallet.ts";
@@ -16,6 +16,7 @@ type Props = {
 };
 
 const TERMINAL = new Set<OrderState>(["completed", "released", "expired"]);
+const WALLET_APP_WAIT_MS = 1500;
 const VISUAL: Record<OrderState, LockVisual> = {
   awaiting_payment: "awaiting",
   locked: "locked",
@@ -30,6 +31,8 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
   const { lang, t } = useT();
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isNotFound, setIsNotFound] = useState(false);
+  const stateRef = useRef<OrderState | null>(null);
   const [isPaying, setIsPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"invoice" | "token" | null>(null);
@@ -46,12 +49,17 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
       try {
         const o = await api.order(orderId);
         if (!alive) return;
+        stateRef.current = o.state;
         setOrder(o);
         setError(null);
         if (!TERMINAL.has(o.state)) timer = setTimeout(load, 1500);
       } catch (e) {
         if (!alive) return;
-        setError(e instanceof ApiError ? e.message : "Could not load your order.");
+        if (e instanceof ApiError && e.status === 404) {
+          setIsNotFound(true); // a wrong or old link: polling cannot fix that
+          return;
+        }
+        setError(e instanceof ApiError ? e.message : t.couldNotLoad);
         timer = setTimeout(load, 4000);
       }
     };
@@ -60,7 +68,7 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
       alive = false;
       clearTimeout(timer);
     };
-  }, [orderId]);
+  }, [orderId, t.couldNotLoad]);
 
   useEffect(() => {
     if (startBalance.current === null && wallet.balance !== null && order?.state === "awaiting_payment") {
@@ -102,14 +110,31 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
   function handleWalletPay(invoice: string): void {
     setPayError(null);
     setIsPaying(true);
-    const startedAt = Date.now();
-    // A hold-invoice payment only resolves after delivery (paid) or release (rejected),
-    // so the UI follows the order status instead of waiting on this promise.
+    // A hold-invoice payment only resolves after delivery (paid) or release (rejected), so the UI
+    // follows the order status. A wallet error matters only while the order still awaits payment;
+    // once it is locked, a rejection just means the lock was released later.
     walletPay(invoice)
       .catch((e: unknown) => {
-        if (Date.now() - startedAt < 8000) setPayError(e instanceof Error ? e.message : "Your wallet could not pay.");
+        if (stateRef.current === "awaiting_payment") setPayError(e instanceof Error ? e.message : t.walletCouldNotPay);
       })
       .finally(() => setIsPaying(false));
+  }
+
+  // A lightning: link with no wallet app installed does nothing at all. If the page is still in front
+  // after a moment, no app took over: say so instead of leaving a dead button.
+  function handleOpenWalletApp(): void {
+    setPayError(null);
+    let isLeft = false;
+    const onHide = (): void => {
+      isLeft = true;
+    };
+    window.addEventListener("blur", onHide, { once: true });
+    document.addEventListener("visibilitychange", onHide, { once: true });
+    window.setTimeout(() => {
+      window.removeEventListener("blur", onHide);
+      document.removeEventListener("visibilitychange", onHide);
+      if (!isLeft && document.visibilityState === "visible") setPayError(t.noWalletApp);
+    }, WALLET_APP_WAIT_MS);
   }
 
   async function handleCopy(text: string, what: "invoice" | "token"): Promise<void> {
@@ -120,6 +145,21 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
     } catch {
       setCopied(null);
     }
+  }
+
+  if (isNotFound) {
+    return (
+      <section className="receipt">
+        <p className="notice error" role="alert">
+          {t.orderNotFound}
+        </p>
+        <div className="btn-row">
+          <button type="button" className="btn paper" onClick={() => navigate("#/")}>
+            {t.buyAnother}
+          </button>
+        </div>
+      </section>
+    );
   }
 
   if (!order) {
@@ -154,16 +194,20 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
         </div>
         <h2 id="order-headline">{headline}</h2>
         <p className="muted">{detail}</p>
+        {(order.state === "locked" || order.state === "vending" || order.state === "delivered") && (
+          <p className="hint">{t.waitHint(config?.limits.vendDeadlineSec ?? 90)}</p>
+        )}
+        {error && <p className="hint">{t.reconnecting}</p>}
         <hr className="dash" />
         <dl className="rows">
           <div>
             <dt>{t.item}</dt>
-            <dd>{order.product}</dd>
+            <dd>{displayProduct(order.product, lang)}</dd>
           </div>
           <div>
             <dt>{t.for}</dt>
             <dd>
-              {order.recipient}
+              {displayRecipient(order.recipient, lang)}
               {order.customerName ? ` · ${order.customerName}` : ""}
             </dd>
           </div>
@@ -223,9 +267,13 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
                 {t.getTestWallet}
               </button>
             ) : null}
-            <a className="btn ghost" href={`lightning:${order.invoice}`}>
-              {t.openWallet}
-            </a>
+            {/* Test-network invoices can't be paid by wallets on the public Lightning network, so the
+                hand-off to a wallet app is offered only when the merchant wallet is a real one. */}
+            {config && !config.testWallet.enabled && (
+              <a className="btn ghost" href={`lightning:${order.invoice}`} onClick={handleOpenWalletApp}>
+                {t.openWallet}
+              </a>
+            )}
             <button type="button" className="btn ghost" onClick={() => handleCopy(order.invoice!, "invoice")}>
               {copied === "invoice" ? t.copied : t.copyInvoice}
             </button>
@@ -246,15 +294,21 @@ export function OrderPage({ orderId, config, onOpenWallet }: Props) {
         <Timeline order={order} />
       </section>
 
-      {order.receipt && (
+      {order.state === "completed" && (
         <section className="receipt" aria-labelledby="proof-title">
           <p className="eyebrow" id="proof-title">
             {t.signedReceipt}
           </p>
-          <p>{receiptValid === null ? t.checkingSig : receiptValid ? t.sigOk : t.sigBad}</p>
-          <p className="hint breakall">
-            {t.signedBy} {config?.receipts.npub}
-          </p>
+          {order.receipt ? (
+            <>
+              <p>{receiptValid === null ? t.checkingSig : receiptValid ? t.sigOk : t.sigBad}</p>
+              <p className="hint breakall">
+                {t.signedBy} {config?.receipts.npub}
+              </p>
+            </>
+          ) : (
+            <p className="muted">{t.receiptUnavailable}</p>
+          )}
         </section>
       )}
 

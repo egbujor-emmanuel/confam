@@ -34,3 +34,26 @@ export function guessNgNetwork(phone: string): "mtn" | "airtel" | "glo" | "etisa
 }
 
 export const NG_NETWORK_LABEL: Record<string, string> = { mtn: "MTN", airtel: "Airtel", glo: "Glo", etisalat: "9mobile" };
+
+/** Generic words in server-built product labels; brand and company names stay as they are. */
+const FR_WORDS: [RegExp, string][] = [
+  [/Woyofal electricity \(Senelec prepaid\)/i, "Électricité Woyofal (Senelec, prépayé)"],
+  [/^(.+?)\s+airtime$/i, "Crédit $1"], // "MTN Airtime" -> "Crédit MTN"
+  [/\(prepaid\)/gi, "(prépayé)"],
+  [/\(postpaid\)/gi, "(postpayé)"],
+];
+
+/**
+ * What the order page shows as the item. The amount is shown (localized) on its own row, so a leading
+ * amount in the label ("₦200 ", "1,000 XOF ") is dropped rather than shown in English number format.
+ */
+export function displayProduct(label: string, lang: Lang): string {
+  const name = label.replace(/^(₦[\d,.]+|[\d,.]+\s?[A-Z]{3})\s+/, "");
+  if (lang !== "fr") return name;
+  const fr = FR_WORDS.reduce((text, [re, to]) => text.replace(re, to), name);
+  return fr.charAt(0).toUpperCase() + fr.slice(1);
+}
+
+/** "meter 1111******111" -> "compteur 1111******111" in French. */
+export const displayRecipient = (recipient: string, lang: Lang): string =>
+  lang === "fr" ? recipient.replace(/^meter /, "compteur ") : recipient;

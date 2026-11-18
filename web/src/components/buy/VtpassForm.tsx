@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, ApiError, type Category, type CreateOrderInput, type MeterInfo, type Service, type Variation } from "../../api.ts";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { api, ApiError, type Category, type CreateOrderInput, type Service, type Variation } from "../../api.ts";
 import { NG_NETWORK_LABEL, guessNgNetwork, money } from "../../format.ts";
 import { navigate } from "../../hooks.ts";
 import { useT } from "../../i18n.ts";
-import { AmountChips, QuoteRows, SubmitBar } from "./shared.tsx";
+import { AmountChips, FieldError, QuoteRows, SubmitBar, TestFill, useMeterCheck } from "./shared.tsx";
 
 type Props = {
   category: Category;
@@ -11,6 +11,11 @@ type Props = {
 };
 
 const QUICK: Record<"airtime" | "electricity", number[]> = { airtime: [100, 200, 500, 1000, 2000], electricity: [1000, 2000, 5000, 10000] };
+const MIN_NGN = 50;
+const MAX_NGN = 50_000;
+/** VTpass sandbox test values (https://www.vtpass.com/documentation/): delivered on success. */
+const SANDBOX_PHONE = "08011111111";
+const SANDBOX_METER = { serviceID: "ikeja-electric", number: "1111111111111" };
 
 /** Nigeria (VTpass): airtime, data and prepaid/postpaid electricity with meter verification. */
 export function VtpassForm({ category, sandbox }: Props) {
@@ -23,8 +28,6 @@ export function VtpassForm({ category, sandbox }: Props) {
   const [variationCode, setVariationCode] = useState("");
   const [meterNumber, setMeterNumber] = useState("");
   const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid");
-  const [meter, setMeter] = useState<MeterInfo | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,25 +64,16 @@ export function VtpassForm({ category, sandbox }: Props) {
     };
   }, [category, serviceID]);
 
-  useEffect(() => setMeter(null), [meterNumber, meterType, serviceID]);
+  const meterKey = `${serviceID}|${meterType}|${meterNumber}`;
+  const verify = useCallback(() => api.verifyMeter(serviceID, meterNumber.trim(), meterType), [serviceID, meterNumber, meterType]);
+  const { meter, error: meterError, isVerifying, check: handleVerifyMeter } = useMeterCheck(meterKey, verify, "Could not verify the meter.", Boolean(serviceID) && meterNumber.length >= 10);
+  const canCheckMeter = Boolean(serviceID) && meterNumber.length >= 6 && !isVerifying;
 
   const amountLocal = useMemo(() => {
     if (category === "data") return variations.find((v) => v.code === variationCode)?.amountNgn ?? 0;
     const n = Number(amount);
     return Number.isInteger(n) && n > 0 ? n : 0;
   }, [category, amount, variations, variationCode]);
-
-  async function handleVerifyMeter(): Promise<void> {
-    setError(null);
-    setIsVerifying(true);
-    try {
-      setMeter(await api.verifyMeter(serviceID, meterNumber.trim(), meterType));
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not verify the meter.");
-    } finally {
-      setIsVerifying(false);
-    }
-  }
 
   function buildInput(): CreateOrderInput {
     if (category === "airtime") return { category, countryCode: "NG", serviceID, phone, amountLocal };
@@ -101,7 +95,31 @@ export function VtpassForm({ category, sandbox }: Props) {
   }
 
   const needsMeter = category === "electricity";
-  const canSubmit = Boolean(serviceID) && phone.trim().length >= 10 && amountLocal > 0 && (!needsMeter || Boolean(meter));
+  // Same rule as the server: Confam's limits, narrowed by the company's/network's own range and the meter's minimum.
+  const svc = services.find((s) => s.serviceID === serviceID);
+  const minNgn = Math.max(MIN_NGN, svc?.minAmount ?? 0, needsMeter ? (meter?.minAmount ?? 0) : 0);
+  const maxNgn = Math.min(MAX_NGN, svc?.maxAmount ?? Number.POSITIVE_INFINITY);
+  const rangeText = [money(minNgn, "NGN", lang), money(maxNgn, "NGN", lang)] as const;
+  const amountOk = category === "data" ? amountLocal > 0 : amountLocal >= minNgn && amountLocal <= maxNgn;
+  const phoneOk = phone.replace(/\D/g, "").length >= 10;
+  const canSubmit = Boolean(serviceID) && phoneOk && amountOk && (!needsMeter || Boolean(meter));
+  const amountError = category !== "data" && amount !== "" && !amountOk ? t.amountOutOfRange(...rangeText) : null;
+  const missing = needsMeter
+    ? !serviceID ? t.needCompany : !meter ? t.needMeter : !phoneOk ? t.needPhone : !amountOk ? t.needAmount(...rangeText) : null
+    : !phoneOk ? t.needPhone : !serviceID ? t.needNetwork : category === "data" && !variationCode ? t.needPlan : !amountOk ? t.needAmount(...rangeText) : null;
+
+  function fillTestMeter(): void {
+    setServiceID(SANDBOX_METER.serviceID); // works even before the company list has loaded
+    setMeterType("prepaid");
+    setMeterNumber(SANDBOX_METER.number);
+  }
+
+  // The sandbox test number has no real network prefix, so pick MTN for it unless one is chosen.
+  function fillTestPhone(): void {
+    setPhone(SANDBOX_PHONE);
+    if (!serviceID) setServiceID(category === "data" ? "mtn-data" : "mtn");
+  }
+
   const phoneField = (labelText: string, hint?: string) => (
     <div className="field">
       <label className="label" htmlFor="phone">
@@ -114,6 +132,7 @@ export function VtpassForm({ category, sandbox }: Props) {
         <input id="phone" className="input" inputMode="tel" autoComplete="tel-national" placeholder="0803 123 4567" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
       {hint && <span className="hint">{hint}</span>}
+      {sandbox && !needsMeter && phone !== SANDBOX_PHONE && <TestFill label={t.useTestNumber} onFill={fillTestPhone} />}
     </div>
   );
 
@@ -156,9 +175,16 @@ export function VtpassForm({ category, sandbox }: Props) {
               inputMode="numeric"
               autoComplete="off"
               value={meterNumber}
+              aria-invalid={meterError ? true : undefined}
+              aria-describedby={meterError ? "meter-error" : undefined}
               onChange={(e) => setMeterNumber(e.target.value.replace(/\D/g, "").slice(0, 13))}
+              onBlur={() => {
+                if (!meter && canCheckMeter) void handleVerifyMeter();
+              }}
             />
+            <FieldError id="meter-error" message={meterError} />
             {sandbox && <span className="hint">{t.sandboxMeter}</span>}
+            {sandbox && meterNumber !== SANDBOX_METER.number && <TestFill label={t.useTestMeter} onFill={fillTestMeter} />}
           </div>
           {meter ? (
             <p className="notice info" role="status">
@@ -166,7 +192,7 @@ export function VtpassForm({ category, sandbox }: Props) {
               {meter.address ? ` · ${meter.address}` : ""}
             </p>
           ) : (
-            <button type="button" className="btn ghost" disabled={!serviceID || meterNumber.length < 6 || isVerifying} onClick={handleVerifyMeter}>
+            <button type="button" className="btn ghost" disabled={!canCheckMeter} onClick={() => void handleVerifyMeter()}>
               {isVerifying ? <span className="spinner" aria-hidden="true" /> : null}
               {isVerifying ? t.checkingMeter : t.checkMeter}
             </button>
@@ -211,14 +237,23 @@ export function VtpassForm({ category, sandbox }: Props) {
           <label className="label" htmlFor="amount">
             {t.amount} (₦)
           </label>
-          <input id="amount" className="input mono" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+          <input
+            id="amount"
+            className="input mono"
+            inputMode="numeric"
+            value={amount}
+            aria-invalid={amountError ? true : undefined}
+            aria-describedby={amountError ? "amount-error" : "amount-range"}
+            onChange={(e) => setAmount(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          />
           <AmountChips amounts={QUICK[category]} value={amount} currency="NGN" onPick={setAmount} />
-          <span className="hint">{t.range(money(50, "NGN", lang), money(50000, "NGN", lang))}</span>
+          <FieldError id="amount-error" message={amountError} />
+          {!amountError && <span id="amount-range" className="hint">{t.range(...rangeText)}</span>}
         </div>
       )}
 
-      <QuoteRows amount={amountLocal} currency="NGN" />
-      <SubmitBar canSubmit={canSubmit} isBusy={isBusy} error={error} />
+      <QuoteRows amount={amountOk ? amountLocal : 0} currency="NGN" />
+      <SubmitBar canSubmit={canSubmit} isBusy={isBusy} error={error} missing={missing} />
     </form>
   );
 }
