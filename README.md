@@ -218,7 +218,7 @@ flowchart LR
 | Double purchase on retry | Provider calls carry an idempotency key; the engine calls purchase at most once per order. |
 | Server key or provider keys leak | Keys live only in environment variables, never in the repo or the browser. The Lightning wallet connection cannot pay out. |
 | Fake receipts | Receipts are Nostr events signed by Confam's key; the browser checks the signature. |
-| Personal data | Phone and meter numbers are masked in every API response and in logs (redacted). |
+| Personal data | Phone and meter numbers are masked in every API response and redacted from logs; request log lines carry only the method and path (no client IP). Public metrics are counts only. |
 | Abuse | Rate limits on order creation and lookups; per-order caps in sats and in local currency. |
 
 ---
@@ -229,10 +229,14 @@ Requirements: Node 24.
 
 ```bash
 git clone https://github.com/egbujor-emmanuel/confam && cd confam
-npm run setup        # installs, creates .env, generates keys and a test merchant wallet
-# add sandbox keys to .env: VTpass (sandbox.vtpass.com) and DEXPAY (portal.dexpay.africa)
-npm start            # http://localhost:8787
+npm run demo         # one command: installs, creates .env (signing key + a test merchant wallet), builds, starts
+                     # open http://localhost:8787
 ```
+
+It runs with no accounts at all; to buy real sandbox products, add free sandbox keys to `.env` (VTpass
+from sandbox.vtpass.com, DEXPAY from portal.dexpay.africa) and run `npm run demo` again. The committed
+catalogue snapshot (`server/src/vtpass/intl-snapshot.json`, real VTpass replies) seeds the international
+networks and prices, so they show even before the live catalogue answers.
 
 Provider sandbox setup, learned the hard way:
 

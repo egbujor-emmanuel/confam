@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildApp } from "../src/app.ts";
+import { buildApp, logRequest } from "../src/app.ts";
 import { loadConfig } from "../src/config.ts";
 import { OrderService } from "../src/orders/service.ts";
 import { OrderStore } from "../src/orders/store.ts";
@@ -389,6 +389,13 @@ describe("API: rate limits use the real client address", () => {
     for (let i = 0; i < 10; i++) await hit({ "cf-ray": "x", "cf-connecting-ip": "198.51.100.1" });
     expect((await hit({ "cf-ray": "x", "cf-connecting-ip": "198.51.100.1" })).statusCode).toBe(429);
     expect((await hit({ "cf-ray": "x", "cf-connecting-ip": "198.51.100.2" })).statusCode).toBe(400);
+  });
+});
+
+describe("logging", () => {
+  it("logs requests without the client's IP address, port or headers", () => {
+    const line = logRequest({ method: "GET", url: "/api/health", remoteAddress: "203.0.113.9", remotePort: 5555, headers: { host: "x" } } as never);
+    expect(line).toEqual({ method: "GET", url: "/api/health" });
   });
 });
 

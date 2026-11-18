@@ -25,6 +25,8 @@ export async function buildApp(deps: ApiDeps, opts: AppOptions = {}): Promise<Fa
           level: deps.cfg.NODE_ENV === "production" ? "info" : "debug",
           // Never log request bodies (phone/meter numbers) or wallet secrets.
           redact: ["req.headers.authorization", "req.headers.cookie", "req.body", "nwcUrl", "preimage", "phone", "billersCode"],
+          // Request lines carry the method and path only: no client IP, port or headers.
+          serializers: { req: logRequest },
         }
       : false,
   });
@@ -112,4 +114,9 @@ export function clientKey(req: FastifyRequest): string {
   const cf = req.headers["cf-connecting-ip"];
   if (req.headers["cf-ray"] && typeof cf === "string" && cf.length > 0 && cf.length <= 45) return cf;
   return req.socket.remoteAddress ?? "unknown";
+}
+
+/** What a request log line may contain. The client's IP address is personal data, so it is left out. */
+export function logRequest(req: { method?: string; url?: string }): { method?: string; url?: string } {
+  return { method: req.method, url: req.url };
 }
