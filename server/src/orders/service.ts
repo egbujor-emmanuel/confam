@@ -67,6 +67,8 @@ export interface OrderServiceDeps {
   intl: IntlCatalog | null;
   /** ISO codes VTpass sells international airtime to (loaded from the catalogue at startup). */
   intlCountries: ReadonlySet<string>;
+  /** Countries where VTpass actually has data bundles (many list networks with no plans). */
+  intlDataCountries: ReadonlySet<string>;
   rates: Pick<RateService, "current">;
   limits: { minNgn: number; maxNgn: number; maxSats: number; feeBps: number; invoiceExpirySec: number };
   vtpassSandbox: boolean;
@@ -112,7 +114,9 @@ export class OrderService {
     if (!this.deps.vtpass) return null;
     if (country.iso === "NG") return "vtpass";
     if (category === "electricity") return null; // electricity: Nigeria only
-    return this.deps.intl && this.deps.intlCountries.has(country.iso) ? "vtpass" : null;
+    if (!this.deps.intl || !this.deps.intlCountries.has(country.iso)) return null;
+    if (category === "data" && !this.deps.intlDataCountries.has(country.iso)) return null;
+    return "vtpass";
   }
 
   async verifyMeter(serviceID: string, meterNumber: string, meterType: "prepaid" | "postpaid"): Promise<MeterInfo> {

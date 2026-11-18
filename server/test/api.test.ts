@@ -98,6 +98,7 @@ function deps(webDistDir = "/nonexistent") {
     vtpassCatalog: catalog,
     intl,
     intlCountries: new Set(["SN", "GH"]),
+    intlDataCountries: new Set(["GH"]),
     rates,
     vtpassSandbox: true,
     limits,
@@ -134,7 +135,8 @@ describe("API: config & catalogue", () => {
     const res = await app.inject({ method: "GET", url: "/api/countries" });
     const byIso = Object.fromEntries(res.json().countries.map((c: { iso: string }) => [c.iso, c]));
     expect(byIso.NG.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: "vtpass" });
-    expect(byIso.SN.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: null });
+    expect(byIso.SN.services).toEqual({ airtime: "vtpass", data: null, electricity: null }); // no data bundles in this fixture
+    expect(byIso.GH.services).toEqual({ airtime: "vtpass", data: "vtpass", electricity: null });
     expect(byIso.ML).toBeUndefined(); // not in VTpass's international list in this fixture
     expect(byIso.SN).toMatchObject({ currency: "XOF", dial: "221" });
   });

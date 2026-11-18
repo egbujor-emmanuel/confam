@@ -1,5 +1,6 @@
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
+import { COUNTRIES } from "./countries.ts";
 import { createHoldInvoiceProvider } from "./lightning/index.ts";
 import { OrderEngine } from "./orders/engine.ts";
 import { OrderService } from "./orders/service.ts";
@@ -31,9 +32,13 @@ async function main(): Promise<void> {
   // International airtime/data: the country list is read once at startup from VTpass's catalogue.
   const intl = vtpass ? new IntlCatalog(cfg.VTPASS_INTL_CATALOG_URL ?? cfg.VTPASS_BASE_URL) : null;
   let intlCountries: ReadonlySet<string> = new Set();
+  // Filled in the background: countries where at least one network has data bundles.
+  const intlDataCountries = new Set<string>();
   if (intl) {
     try {
       intlCountries = await intl.countryCodes();
+      const served = COUNTRIES.filter((c) => c.iso !== "NG" && intlCountries.has(c.iso));
+      void findDataCountries(intl, served.map((c) => c.iso), intlDataCountries);
     } catch (err) {
       process.stderr.write(`International catalogue unavailable at startup: ${err instanceof Error ? err.message : String(err)}
 `);
@@ -50,6 +55,7 @@ async function main(): Promise<void> {
     vtpassCatalog: catalog,
     intl,
     intlCountries,
+    intlDataCountries,
     rates,
     vtpassSandbox: cfg.vtpassIsSandbox,
     limits: {
@@ -96,3 +102,21 @@ main().catch((err: unknown) => {
   process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });
+
+/** Adds each country where some network has at least one data bundle (errors just leave it out). */
+async function findDataCountries(intl: IntlCatalog, isos: string[], into: Set<string>): Promise<void> {
+  await Promise.all(
+    isos.map(async (iso) => {
+      try {
+        for (const op of await intl.operators(iso, "data")) {
+          if ((await intl.offers(op.operatorId, "data")).length > 0) {
+            into.add(iso);
+            return;
+          }
+        }
+      } catch {
+        // Catalogue hiccup for this country: data stays hidden there rather than showing a dead end.
+      }
+    }),
+  );
+}
