@@ -42,6 +42,10 @@ const EnvSchema = z
     DEXPAY_SECRET_KEY: z.string().regex(/^sk_(test|live)_[A-Za-z0-9]+$/).optional(),
     DEXPAY_PUBLIC_KEY: z.string().regex(/^pk_(test|live)_[A-Za-z0-9]+$/).optional(),
 
+    // Durable copy of the order database (Turso), so a host restart never loses orders.
+    TURSO_DATABASE_URL: z.string().regex(/^(libsql|https|wss):\/\//).optional(),
+    TURSO_AUTH_TOKEN: z.string().min(1).optional(),
+
     // Signs delivery receipts (Nostr event signatures).
     NOSTR_SECRET_KEY_HEX: z.string().regex(/^[0-9a-fA-F]{64}$/),
 

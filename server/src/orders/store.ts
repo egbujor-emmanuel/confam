@@ -48,7 +48,8 @@ const COLUMNS: Record<keyof Order, string> = {
   reconState: "recon_state",
 };
 
-const SCHEMA = `
+/** Shared with the remote backup (Turso), which keeps the same tables. */
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
@@ -107,6 +108,8 @@ CREATE INDEX IF NOT EXISTS idx_events_order ON order_events(order_id);
 `;
 
 type Row = Record<string, SQLInputValue>;
+/** A raw database row (column name -> value) as copied to and from the remote backup. */
+export type BackupRow = Record<string, SQLInputValue>;
 export type OrderPatch = Partial<Omit<Order, "id" | "state" | "createdAt">>;
 
 export class OrderStore {
@@ -241,6 +244,47 @@ export class OrderStore {
       to: r.to_state as OrderState,
       note: String(r.note),
     }));
+  }
+
+  /** True when the database has no orders yet (a fresh disk after a host restart). */
+  isEmpty(): boolean {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM orders").get() as { n: number }).n === 0;
+  }
+
+  /**
+   * Raw rows changed since the given watermarks, for the remote backup. Orders are compared on
+   * updated_at (>=, so same-millisecond updates are never missed); events are append-only by seq.
+   */
+  changedSince(updatedAt: number, eventSeq: number): { orders: BackupRow[]; events: BackupRow[] } {
+    return {
+      orders: this.db.prepare("SELECT * FROM orders WHERE updated_at >= ? ORDER BY updated_at ASC").all(updatedAt) as BackupRow[],
+      events: this.db.prepare("SELECT * FROM order_events WHERE seq > ? ORDER BY seq ASC").all(eventSeq) as BackupRow[],
+    };
+  }
+
+  /** Restores rows from the backup. Orders replace local copies; events keep their original seq. */
+  importRows(orders: readonly BackupRow[], events: readonly BackupRow[]): void {
+    // Only real columns of this schema are written (never trust column names from elsewhere).
+    const known = new Set((this.db.prepare("PRAGMA table_info(orders)").all() as { name: string }[]).map((c) => c.name));
+    this.db.exec("BEGIN");
+    try {
+      for (const row of orders) {
+        const cols = Object.keys(row).filter((c) => known.has(c));
+        if (!cols.includes("id")) continue;
+        this.db
+          .prepare(`INSERT OR REPLACE INTO orders (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`)
+          .run(...cols.map((c) => row[c] ?? null));
+      }
+      for (const e of events) {
+        this.db
+          .prepare("INSERT OR IGNORE INTO order_events (seq, order_id, at, from_state, to_state, note) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(e.seq ?? null, e.order_id ?? null, e.at ?? null, e.from_state ?? null, e.to_state ?? null, e.note ?? null);
+      }
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   close(): void {

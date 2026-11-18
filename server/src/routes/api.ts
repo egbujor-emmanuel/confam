@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { Config } from "../config.ts";
 import { COUNTRIES, findCountry, toInternational } from "../countries.ts";
 import { AppError } from "../errors.ts";
-import type { HoldInvoiceProvider } from "../lightning/types.ts";
+import { LightningError, type HoldInvoiceProvider } from "../lightning/types.ts";
+import { randomBytes } from "node:crypto";
 import { CreateOrderSchema, dexpayFee, WOYOFAL_MAX_XOF, WOYOFAL_MIN_XOF, type OrderService } from "../orders/service.ts";
 import type { OrderStore } from "../orders/store.ts";
 import type { Category } from "../orders/types.ts";
@@ -49,7 +50,17 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
   const { cfg } = deps;
   const fetchImpl = deps.fetchImpl ?? fetch;
 
-  app.get("/api/health", async () => ({ ok: true }));
+  // Liveness. With ?deep=1 (used by the uptime pinger) it also checks the merchant Lightning wallet:
+  // looking up a random invoice must come back "not found" from a live wallet. Cached for a minute.
+  let lnHealth = { at: 0, up: true, detail: "" };
+  app.get<{ Querystring: { deep?: string } }>("/api/health", async (req, reply) => {
+    if (req.query.deep !== "1") return { ok: true };
+    if (Date.now() - lnHealth.at > 60_000) {
+      lnHealth = { at: Date.now(), ...(await probeLightning(deps.ln)) };
+    }
+    reply.code(lnHealth.up ? 200 : 503);
+    return { ok: lnHealth.up, lightning: lnHealth.up ? "up" : "down", ...(lnHealth.up ? {} : { detail: lnHealth.detail }) };
+  });
 
   app.get("/api/config", async () => ({
     lightning: { backend: deps.ln.kind, network: cfg.LIGHTNING_NETWORK_LABEL },
@@ -198,4 +209,16 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     }
     return { nwcUrl: text, balanceSats: cfg.TEST_WALLET_BALANCE_SATS };
   });
+}
+
+/** A live wallet answers a lookup for an unknown invoice with "not found"; errors or silence mean down. */
+async function probeLightning(ln: Pick<HoldInvoiceProvider, "getStatus">): Promise<{ up: boolean; detail: string }> {
+  const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no reply within 10s")), 10_000));
+  try {
+    await Promise.race([ln.getStatus(randomBytes(32).toString("hex")), timeout]);
+    return { up: true, detail: "" };
+  } catch (err) {
+    if (err instanceof LightningError && (err.code === "NOT_FOUND" || err.code === "REJECTED")) return { up: true, detail: "" };
+    return { up: false, detail: err instanceof Error ? err.message.slice(0, 120) : "unknown" };
+  }
 }

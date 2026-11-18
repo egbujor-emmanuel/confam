@@ -3,6 +3,7 @@ import { loadConfig } from "./config.ts";
 import { COUNTRIES } from "./countries.ts";
 import { DexpayClient } from "./dexpay/client.ts";
 import { createHoldInvoiceProvider } from "./lightning/index.ts";
+import { RemoteBackup, tursoRemote } from "./orders/backup.ts";
 import { OrderEngine } from "./orders/engine.ts";
 import { OrderService } from "./orders/service.ts";
 import { OrderStore } from "./orders/store.ts";
@@ -88,6 +89,20 @@ async function main(): Promise<void> {
     cfg: { vendDeadlineSec: cfg.VEND_DEADLINE_SEC, tickMs: cfg.ENGINE_TICK_MS },
   });
 
+  // Restore from the durable copy BEFORE the engine runs, so locked payments resume where they were.
+  let stopBackup: (() => Promise<void>) | null = null;
+  if (cfg.TURSO_DATABASE_URL && cfg.TURSO_AUTH_TOKEN) {
+    const backup = new RemoteBackup(store, await tursoRemote(cfg.TURSO_DATABASE_URL, cfg.TURSO_AUTH_TOKEN), {
+      info: (m) => app.log.info(m),
+      warn: (m) => app.log.warn(m),
+    });
+    await initWithRetry(backup, (m) => app.log.warn(m));
+    stopBackup = backup.start(5000);
+    app.log.info("order backup to Turso is on");
+  } else {
+    app.log.warn("TURSO_DATABASE_URL not set: orders live only on this disk");
+  }
+
   await engine.start();
   await app.listen({ port: cfg.PORT, host: cfg.HOST });
   app.log.info({ ln: ln.kind, providers: Object.keys(providers) }, "Confam is up");
@@ -95,6 +110,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
     engine?.stop();
+    await stopBackup?.();
     await app.close();
     ln.close?.();
     store.close();
@@ -125,4 +141,19 @@ async function findDataCountries(intl: IntlCatalog, isos: string[], into: Set<st
       }
     }),
   );
+}
+
+/** The restore must succeed before the engine starts; retry briefly, then refuse to start on stale data. */
+async function initWithRetry(backup: RemoteBackup, warn: (m: string) => void): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await backup.init();
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt >= 5) throw new Error(`Could not reach the Turso backup after 5 attempts: ${msg}`);
+      warn(`Turso backup unreachable (attempt ${attempt}/5): ${msg}`);
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
+  }
 }

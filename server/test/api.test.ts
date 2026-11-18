@@ -354,3 +354,19 @@ describe("API: Senegal electricity (Woyofal via DEXPAY)", () => {
     expect((await app.inject({ method: "GET", url: "/api/woyofal/quote?amount=100" })).statusCode).toBe(400);
   });
 });
+
+describe("API: health", () => {
+  it("is cheap by default and checks the Lightning wallet with ?deep=1", async () => {
+    expect((await app.inject({ method: "GET", url: "/api/health" })).json()).toEqual({ ok: true });
+    const up = await app.inject({ method: "GET", url: "/api/health?deep=1" });
+    expect(up.statusCode).toBe(200);
+    expect(up.json()).toEqual({ ok: true, lightning: "up" });
+  });
+
+  it("returns 503 when the wallet does not answer, so the uptime pinger raises an alarm", async () => {
+    ln.statusUnavailable = true;
+    const down = await app.inject({ method: "GET", url: "/api/health?deep=1" });
+    expect(down.statusCode).toBe(503);
+    expect(down.json()).toMatchObject({ ok: false, lightning: "down", detail: "relay timeout" });
+  });
+});

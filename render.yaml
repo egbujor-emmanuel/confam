@@ -1,0 +1,57 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Free web service. It sleeps after 15 idle minutes, so an uptime ping (cron-job.org every 10 min,
+# plus .github/workflows/keepalive.yml as a backup) keeps it awake. The disk is wiped on restart,
+# so orders are copied to Turso (TURSO_*) and restored on start.
+services:
+  - type: web
+    name: confam
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --no-audit --no-fund && npm run build -w web
+    # tsx runs the server directly (not through npm) so it receives SIGTERM and makes a final backup push.
+    startCommand: cd server && ../node_modules/.bin/tsx src/server.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.18.0
+      - key: NODE_ENV
+        value: production
+      # Set to the service URL after the first deploy, e.g. https://confam.onrender.com
+      - key: PUBLIC_BASE_URL
+        sync: false
+      # Lightning: merchant wallet that issues hold invoices (NWC).
+      - key: LN_BACKEND
+        value: nwc
+      - key: MERCHANT_NWC_URL
+        sync: false
+      - key: LIGHTNING_NETWORK_LABEL
+        value: NWC test wallets
+      - key: TEST_WALLET_FAUCET
+        value: "true"
+      # Receipts are signed with this Nostr key.
+      - key: NOSTR_SECRET_KEY_HEX
+        sync: false
+      # VTpass: Nigeria + international airtime/data.
+      - key: VTPASS_BASE_URL
+        value: https://sandbox.vtpass.com
+      - key: VTPASS_INTL_CATALOG_URL
+        value: https://vtpass.com
+      - key: VTPASS_API_KEY
+        sync: false
+      - key: VTPASS_PUBLIC_KEY
+        sync: false
+      - key: VTPASS_SECRET_KEY
+        sync: false
+      # DEXPAY: Senegal electricity (Woyofal).
+      - key: DEXPAY_BASE_URL
+        value: https://api-sandbox.dexpay.africa/api/v1
+      - key: DEXPAY_PUBLIC_KEY
+        sync: false
+      - key: DEXPAY_SECRET_KEY
+        sync: false
+      # Durable copy of the order database.
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
