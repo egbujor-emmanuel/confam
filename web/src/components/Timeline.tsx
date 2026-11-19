@@ -1,4 +1,5 @@
 import type { Order, OrderState } from "../api.ts";
+import { displayProduct } from "../format.ts";
 import { useT } from "../i18n.ts";
 
 type StepStatus = "done" | "active" | "todo" | "stopped";
@@ -17,7 +18,7 @@ type Props = {
 };
 
 export function Timeline({ order }: Props) {
-  const { t } = useT();
+  const { lang, t } = useT();
   const step = (key: string, status: StepStatus, note?: string): Step => {
     const [title, defaultNote] = t.tl[key] ?? [key, ""];
     return { key, title, note: note ?? defaultNote, status };
@@ -30,11 +31,11 @@ export function Timeline({ order }: Props) {
     const reached = new Set(order.timeline.map((e) => e.state));
     const progress = reached.has("vending") ? 3 : reached.has("locked") ? 2 : 1;
     const keys = ["pay", "locked", "buying"].slice(0, progress);
-    steps = [...keys.map((k) => step(k, "done", k === "buying" ? order.product : undefined)), step("released", "stopped")];
+    steps = [...keys.map((k) => step(k, "done", k === "buying" ? displayProduct(order.product, lang) : undefined)), step("released", "stopped")];
   } else {
     const rank = RANK[order.state] ?? 0;
     steps = ["pay", "locked", "buying", "delivered", "paid"].map((k, i) =>
-      step(k, i < rank ? "done" : i === rank ? "active" : "todo", k === "buying" ? order.product : undefined),
+      step(k, i < rank ? "done" : i === rank ? "active" : "todo", k === "buying" ? displayProduct(order.product, lang) : undefined),
     );
   }
 

@@ -99,7 +99,7 @@ async function payAndWait(page, s, endText) {
   await page.waitForFunction((t) => document.querySelector("#order-headline")?.textContent?.match(new RegExp(t)), endText, { timeout: 150000 });
   s.mark("final state");
   // Back up to the card: headline, stamp and wallet balance are the shot that matters.
-  await page.locator("#order-headline").evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "start" }));
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "smooth" })); // lock, stamp, headline, wallet
   await page.waitForTimeout(800);
   s.mark("result card shown");
   await page.waitForTimeout(4500); // let the stamp land and the balance come back
