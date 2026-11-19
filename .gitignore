@@ -19,3 +19,8 @@ video/capture/clips/
 video/voice/samples/
 video/voice/out/
 video/renders/
+video/film/assets/audio/bed.wav
+video/film/assets/footage/*.mp4
+video/film/.hyperframes/
+video/film/.media/
+video/film/node_modules/

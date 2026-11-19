@@ -1,0 +1,25 @@
+<template>
+  <style>
+#root { position: absolute; inset: 0; color: #fbf8f1; font-family: 'Inter', sans-serif; }
+.eyebrow { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; color: #c6f432; }
+.display { font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -0.02em; line-height: 0.98; }
+.sub { font-size: 34px; line-height: 1.35; color: rgba(251, 248, 241, 0.82); }
+.src { font-family: 'JetBrains Mono', monospace; font-size: 20px; color: rgba(251, 248, 241, 0.55); }
+</style>
+  <div id="root" data-composition-id="s03" data-width="1920" data-height="1080">
+    <div id="s03-panel" class="clip" data-start="0" data-duration="14.208" style="position:absolute; left:150px; top:0; width:920px; height:1080px; display:flex; flex-direction:column; justify-content:center; gap:28px;">
+      <div id="s03-eyebrow" class="eyebrow">Confam</div>
+      <div id="s03-headline" class="display" style="font-size:112px;">E no land?<br>You no pay.</div>
+      <div id="s03-sub" class="sub" style="max-width:820px;">Airtime, data and electricity, paid with Bitcoin.</div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#s03-eyebrow", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.100);
+    tl.fromTo("#s03-headline", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.220);
+    tl.fromTo("#s03-sub", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.500);
+    tl.to("#s03-panel", { opacity: 0, duration: 0.3, ease: "power2.in" }, 13.888);
+
+    window.__timelines["s03"] = tl;
+  </script>
+</template>

@@ -1,0 +1,26 @@
+<template>
+  <style>
+#root { position: absolute; inset: 0; color: #fbf8f1; font-family: 'Inter', sans-serif; }
+.eyebrow { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; color: #c6f432; }
+.display { font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -0.02em; line-height: 0.98; }
+.sub { font-size: 34px; line-height: 1.35; color: rgba(251, 248, 241, 0.82); }
+.src { font-family: 'JetBrains Mono', monospace; font-size: 20px; color: rgba(251, 248, 241, 0.55); }
+</style>
+  <div id="root" data-composition-id="s14" data-width="1920" data-height="1080">
+    <div id="s14-wrap" class="clip" data-start="0" data-duration="6.048" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; text-align:center;">
+      <img id="s14-logo" src="assets/brand.png" style="width:150px; height:150px; border-radius:34px;" alt="" />
+      <div id="s14-name" class="display" style="font-size:150px;">Confam</div>
+      <div id="s14-tag" class="display" style="font-size:72px; color:#c6f432;">E no land? You no pay.</div>
+      <div id="s14-url" class="src" style="font-size:30px; color:rgba(251,248,241,0.85);">confam-qxdh.onrender.com · github.com/egbujor-emmanuel/confam</div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#s14-logo", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.100);
+    tl.fromTo("#s14-name", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.250);
+    tl.fromTo("#s14-tag", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 1.962);
+    tl.fromTo("#s14-url", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 1.200);
+
+    window.__timelines["s14"] = tl;
+  </script>
+</template>

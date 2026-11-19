@@ -1,0 +1,47 @@
+[
+  {
+    "atMs": 10587,
+    "label": "airtime tile",
+    "kind": "click"
+  },
+  {
+    "atMs": 13385,
+    "label": "use test number",
+    "kind": "click"
+  },
+  {
+    "atMs": 15277,
+    "label": "amount 200",
+    "kind": "click"
+  },
+  {
+    "atMs": 18086,
+    "label": "continue to pay",
+    "kind": "click"
+  },
+  {
+    "atMs": 22683,
+    "label": "pay with wallet",
+    "kind": "click"
+  },
+  {
+    "atMs": 23369,
+    "label": "payment sent",
+    "kind": "mark"
+  },
+  {
+    "atMs": 31931,
+    "label": "final state",
+    "kind": "mark"
+  },
+  {
+    "atMs": 32811,
+    "label": "result card shown",
+    "kind": "mark"
+  },
+  {
+    "atMs": 59853,
+    "label": "receipt verified",
+    "kind": "mark"
+  }
+]

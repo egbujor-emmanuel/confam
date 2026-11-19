@@ -1,0 +1,18 @@
+<template>
+  <style>
+#root { position: absolute; inset: 0; color: #fbf8f1; font-family: 'Inter', sans-serif; }
+.eyebrow { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; color: #c6f432; }
+.display { font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -0.02em; line-height: 0.98; }
+.sub { font-size: 34px; line-height: 1.35; color: rgba(251, 248, 241, 0.82); }
+.src { font-family: 'JetBrains Mono', monospace; font-size: 20px; color: rgba(251, 248, 241, 0.55); }
+</style>
+  <div id="root" data-composition-id="phone" data-width="1920" data-height="1080">
+    <div id="phone-body" class="clip" data-start="0" data-duration="82.152" style="position:absolute; left:1180px; top:34px; width:400px; height:834px; border-radius:58px; background:#05140f; box-shadow: 0 0 0 2px rgba(198,244,50,0.25), 0 40px 90px -30px rgba(0,0,0,0.7);"></div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#phone-body", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0);
+
+    window.__timelines["phone"] = tl;
+  </script>
+</template>

@@ -1,0 +1,237 @@
+<template>
+  <style>
+#root { position: absolute; inset: 0; color: #fbf8f1; font-family: 'Inter', sans-serif; }
+.eyebrow { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; color: #c6f432; }
+.display { font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -0.02em; line-height: 0.98; }
+.sub { font-size: 34px; line-height: 1.35; color: rgba(251, 248, 241, 0.82); }
+.src { font-family: 'JetBrains Mono', monospace; font-size: 20px; color: rgba(251, 248, 241, 0.55); }
+.cap { position: absolute; left: 0; right: 0; bottom: 104px; text-align: center; overflow: visible; } .cap span { display: inline-block; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 46px; color: #fbf8f1; padding: 8px 22px; border-radius: 14px; background: rgba(5, 20, 15, 0.55); }</style>
+  <div id="root" data-composition-id="captions" data-width="1920" data-height="1080">
+    <div id="cap0" class="clip cap" data-start="0.552" data-duration="1.082"><span id="cap0-t">You buy airtime.</span></div>
+    <div id="cap1" class="clip cap" data-start="2.39" data-duration="1.498"><span id="cap1-t">Your account is debited.</span></div>
+    <div id="cap2" class="clip cap" data-start="4.747" data-duration="1.524"><span id="cap2-t">The airtime never lands.</span></div>
+    <div id="cap3" class="clip cap" data-start="7.091" data-duration="1.151"><span id="cap3-t">Then you spend two weeks</span></div>
+    <div id="cap4" class="clip cap" data-start="8.262" data-duration="1.056"><span id="cap4-t">chasing a refund.</span></div>
+    <div id="cap5" class="clip cap" data-start="11.496" data-duration="1.634"><span id="cap5-t">Every day, millions of us</span></div>
+    <div id="cap6" class="clip cap" data-start="13.15" data-duration="1.256"><span id="cap6-t">top up phones and prepaid</span></div>
+    <div id="cap7" class="clip cap" data-start="14.426" data-duration="0.717"><span id="cap7-t">meters.</span></div>
+    <div id="cap8" class="clip cap" data-start="15.951" data-duration="1.23"><span id="cap8-t">When the money moves first</span></div>
+    <div id="cap9" class="clip cap" data-start="17.201" data-duration="1.498"><span id="cap9-t">and the product comes later,</span></div>
+    <div id="cap10" class="clip cap" data-start="18.738" data-duration="0.943"><span id="cap10-t">all the risk is on</span></div>
+    <div id="cap11" class="clip cap" data-start="19.701" data-duration="0.535"><span id="cap11-t">us.</span></div>
+    <div id="cap12" class="clip cap" data-start="22.344" data-duration="1.03"><span id="cap12-t">This is Confam.</span></div>
+    <div id="cap13" class="clip cap" data-start="24.13" data-duration="0.769"><span id="cap13-t">E no land?</span></div>
+    <div id="cap14" class="clip cap" data-start="25.784" data-duration="0.782"><span id="cap14-t">You no pay.</span></div>
+    <div id="cap15" class="clip cap" data-start="27.398" data-duration="1.212"><span id="cap15-t">You pay for airtime,</span></div>
+    <div id="cap16" class="clip cap" data-start="28.765" data-duration="2.163"><span id="cap16-t">data and electricity with Bitcoin,</span></div>
+    <div id="cap17" class="clip cap" data-start="31.031" data-duration="1.464"><span id="cap17-t">and your payment only completes</span></div>
+    <div id="cap18" class="clip cap" data-start="32.515" data-duration="1.915"><span id="cap18-t">after the provider confirms delivery.</span></div>
+    <div id="cap19" class="clip cap" data-start="36.552" data-duration="1.147"><span id="cap19-t">Connect a wallet.</span></div>
+    <div id="cap20" class="clip cap" data-start="38.533" data-duration="0.978"><span id="cap20-t">For this demo,</span></div>
+    <div id="cap21" class="clip cap" data-start="39.653" data-duration="1.191"><span id="cap21-t">a free test wallet with</span></div>
+    <div id="cap22" class="clip cap" data-start="40.864" data-duration="1.889"><span id="cap22-t">twenty five thousand test sats.</span></div>
+    <div id="cap23" class="clip cap" data-start="44.856" data-duration="0.873"><span id="cap23-t">Pick airtime.</span></div>
+    <div id="cap24" class="clip cap" data-start="46.473" data-duration="1.029"><span id="cap24-t">Enter the number,</span></div>
+    <div id="cap25" class="clip cap" data-start="47.619" data-duration="1.641"><span id="cap25-t">the network and the amount.</span></div>
+    <div id="cap26" class="clip cap" data-start="50.093" data-duration="1.62"><span id="cap26-t">Confam shows the exact price</span></div>
+    <div id="cap27" class="clip cap" data-start="51.733" data-duration="0.834"><span id="cap27-t">in sats.</span></div>
+    <div id="cap28" class="clip cap" data-start="54.672" data-duration="0.782"><span id="cap28-t">Now watch.</span></div>
+    <div id="cap29" class="clip cap" data-start="56.38" data-duration="1.12"><span id="cap29-t">My sats are locked,</span></div>
+    <div id="cap30" class="clip cap" data-start="57.695" data-duration="0.782"><span id="cap30-t">not sent.</span></div>
+    <div id="cap31" class="clip cap" data-start="59.349" data-duration="1.282"><span id="cap31-t">A hold invoice keeps them</span></div>
+    <div id="cap32" class="clip cap" data-start="60.651" data-duration="1.263"><span id="cap32-t">in the Lightning network,</span></div>
+    <div id="cap33" class="clip cap" data-start="62.044" data-duration="1.36"><span id="cap33-t">and Confam cannot take them</span></div>
+    <div id="cap34" class="clip cap" data-start="63.424" data-duration="0.483"><span id="cap34-t">yet.</span></div>
+    <div id="cap35" class="clip cap" data-start="66.048" data-duration="1.55"><span id="cap35-t">Confam buys the airtime.</span></div>
+    <div id="cap36" class="clip cap" data-start="68.342" data-duration="1.542"><span id="cap36-t">Only when the provider confirms</span></div>
+    <div id="cap37" class="clip cap" data-start="69.904" data-duration="1.798"><span id="cap37-t">delivery does the payment complete.</span></div>
+    <div id="cap38" class="clip cap" data-start="73.8" data-duration="0.983"><span id="cap38-t">And I get a receipt</span></div>
+    <div id="cap39" class="clip cap" data-start="74.803" data-duration="1.016"><span id="cap39-t">signed with Nostr,</span></div>
+    <div id="cap40" class="clip cap" data-start="75.962" data-duration="1.086"><span id="cap40-t">checked right here in my</span></div>
+    <div id="cap41" class="clip cap" data-start="77.068" data-duration="0.587"><span id="cap41-t">browser.</span></div>
+    <div id="cap42" class="clip cap" data-start="79.752" data-duration="1.069"><span id="cap42-t">Now the bad day.</span></div>
+    <div id="cap43" class="clip cap" data-start="81.668" data-duration="1.316"><span id="cap43-t">This purchase fails.</span></div>
+    <div id="cap44" class="clip cap" data-start="83.817" data-duration="1.745"><span id="cap44-t">The lock opens by itself.</span></div>
+    <div id="cap45" class="clip cap" data-start="86.329" data-duration="0.86"><span id="cap45-t">Not charged.</span></div>
+    <div id="cap46" class="clip cap" data-start="88.075" data-duration="1.386"><span id="cap46-t">My sats never left my</span></div>
+    <div id="cap47" class="clip cap" data-start="89.481" data-duration="0.586"><span id="cap47-t">wallet.</span></div>
+    <div id="cap48" class="clip cap" data-start="90.913" data-duration="1.381"><span id="cap48-t">No refund to chase,</span></div>
+    <div id="cap49" class="clip cap" data-start="92.371" data-duration="1.186"><span id="cap49-t">no support ticket.</span></div>
+    <div id="cap50" class="clip cap" data-start="95.712" data-duration="0.912"><span id="cap50-t">And in Dakar,</span></div>
+    <div id="cap51" class="clip cap" data-start="96.78" data-duration="1.438"><span id="cap51-t">the same guarantee for Woyofal</span></div>
+    <div id="cap52" class="clip cap" data-start="98.238" data-duration="1.785"><span id="cap52-t">electricity, in French,</span></div>
+    <div id="cap53" class="clip cap" data-start="100.074" data-duration="1.621"><span id="cap53-t">in CFA, with the token</span></div>
+    <div id="cap54" class="clip cap" data-start="101.715" data-duration="0.691"><span id="cap54-t">on screen.</span></div>
+    <div id="cap55" class="clip cap" data-start="104.496" data-duration="2.136"><span id="cap55-t">Airtime in nineteen African countries,</span></div>
+    <div id="cap56" class="clip cap" data-start="106.775" data-duration="1.081"><span id="cap56-t">data in thirteen,</span></div>
+    <div id="cap57" class="clip cap" data-start="107.96" data-duration="1.516"><span id="cap57-t">and electricity in Nigeria and</span></div>
+    <div id="cap58" class="clip cap" data-start="109.496" data-duration="0.691"><span id="cap58-t">Senegal.</span></div>
+    <div id="cap59" class="clip cap" data-start="112.272" data-duration="1.563"><span id="cap59-t">We measure it in public.</span></div>
+    <div id="cap60" class="clip cap" data-start="114.669" data-duration="0.991"><span id="cap60-t">Delivery rate.</span></div>
+    <div id="cap61" class="clip cap" data-start="116.519" data-duration="1.042"><span id="cap61-t">Time to delivery.</span></div>
+    <div id="cap62" class="clip cap" data-start="118.407" data-duration="1.282"><span id="cap62-t">And the number that matters</span></div>
+    <div id="cap63" class="clip cap" data-start="119.709" data-duration="1.811"><span id="cap63-t">most, charged without delivery.</span></div>
+    <div id="cap64" class="clip cap" data-start="122.339" data-duration="0.535"><span id="cap64-t">Zero.</span></div>
+    <div id="cap65" class="clip cap" data-start="125.04" data-duration="1.569"><span id="cap65-t">Next, real money on our</span></div>
+    <div id="cap66" class="clip cap" data-start="126.629" data-duration="1.042"><span id="cap66-t">own Lightning node,</span></div>
+    <div id="cap67" class="clip cap" data-start="127.814" data-duration="1.498"><span id="cap67-t">TV and water bills,</span></div>
+    <div id="cap68" class="clip cap" data-start="129.389" data-duration="1.602"><span id="cap68-t">automatic meter top ups,</span></div>
+    <div id="cap69" class="clip cap" data-start="131.095" data-duration="1.347"><span id="cap69-t">and agents who accept sats</span></div>
+    <div id="cap70" class="clip cap" data-start="132.462" data-duration="0.821"><span id="cap70-t">on the street.</span></div>
+    <div id="cap71" class="clip cap" data-start="135.432" data-duration="0.691"><span id="cap71-t">Confam.</span></div>
+    <div id="cap72" class="clip cap" data-start="136.892" data-duration="0.77"><span id="cap72-t">E no land?</span></div>
+    <div id="cap73" class="clip cap" data-start="138.546" data-duration="0.782"><span id="cap73-t">You no pay.</span></div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#cap0-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 0.552);
+    tl.to("#cap0-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 1.534);
+    tl.fromTo("#cap1-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 2.39);
+    tl.to("#cap1-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 3.788);
+    tl.fromTo("#cap2-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 4.747);
+    tl.to("#cap2-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 6.171);
+    tl.fromTo("#cap3-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 7.091);
+    tl.to("#cap3-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 8.142);
+    tl.fromTo("#cap4-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 8.262);
+    tl.to("#cap4-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 9.218);
+    tl.fromTo("#cap5-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 11.496);
+    tl.to("#cap5-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 13.03);
+    tl.fromTo("#cap6-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 13.15);
+    tl.to("#cap6-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 14.306);
+    tl.fromTo("#cap7-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 14.426);
+    tl.to("#cap7-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 15.043);
+    tl.fromTo("#cap8-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 15.951);
+    tl.to("#cap8-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 17.081);
+    tl.fromTo("#cap9-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 17.201);
+    tl.to("#cap9-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 18.599);
+    tl.fromTo("#cap10-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 18.738);
+    tl.to("#cap10-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 19.581);
+    tl.fromTo("#cap11-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 19.701);
+    tl.to("#cap11-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 20.136);
+    tl.fromTo("#cap12-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 22.344);
+    tl.to("#cap12-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 23.274);
+    tl.fromTo("#cap13-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 24.13);
+    tl.to("#cap13-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 24.799);
+    tl.fromTo("#cap14-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 25.784);
+    tl.to("#cap14-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 26.466);
+    tl.fromTo("#cap15-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 27.398);
+    tl.to("#cap15-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 28.51);
+    tl.fromTo("#cap16-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 28.765);
+    tl.to("#cap16-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 30.828);
+    tl.fromTo("#cap17-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 31.031);
+    tl.to("#cap17-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 32.395);
+    tl.fromTo("#cap18-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 32.515);
+    tl.to("#cap18-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 34.33);
+    tl.fromTo("#cap19-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 36.552);
+    tl.to("#cap19-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 37.599);
+    tl.fromTo("#cap20-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 38.533);
+    tl.to("#cap20-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 39.411);
+    tl.fromTo("#cap21-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 39.653);
+    tl.to("#cap21-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 40.744);
+    tl.fromTo("#cap22-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 40.864);
+    tl.to("#cap22-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 42.653);
+    tl.fromTo("#cap23-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 44.856);
+    tl.to("#cap23-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 45.629);
+    tl.fromTo("#cap24-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 46.473);
+    tl.to("#cap24-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 47.402);
+    tl.fromTo("#cap25-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 47.619);
+    tl.to("#cap25-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 49.16);
+    tl.fromTo("#cap26-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 50.093);
+    tl.to("#cap26-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 51.613);
+    tl.fromTo("#cap27-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 51.733);
+    tl.to("#cap27-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 52.467);
+    tl.fromTo("#cap28-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 54.672);
+    tl.to("#cap28-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 55.354);
+    tl.fromTo("#cap29-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 56.38);
+    tl.to("#cap29-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 57.4);
+    tl.fromTo("#cap30-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 57.695);
+    tl.to("#cap30-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 58.377);
+    tl.fromTo("#cap31-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 59.349);
+    tl.to("#cap31-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 60.531);
+    tl.fromTo("#cap32-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 60.651);
+    tl.to("#cap32-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 61.814);
+    tl.fromTo("#cap33-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 62.044);
+    tl.to("#cap33-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 63.304);
+    tl.fromTo("#cap34-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 63.424);
+    tl.to("#cap34-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 63.807);
+    tl.fromTo("#cap35-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 66.048);
+    tl.to("#cap35-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 67.498);
+    tl.fromTo("#cap36-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 68.342);
+    tl.to("#cap36-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 69.784);
+    tl.fromTo("#cap37-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 69.904);
+    tl.to("#cap37-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 71.602);
+    tl.fromTo("#cap38-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 73.8);
+    tl.to("#cap38-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 74.683);
+    tl.fromTo("#cap39-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 74.803);
+    tl.to("#cap39-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 75.719);
+    tl.fromTo("#cap40-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 75.962);
+    tl.to("#cap40-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 76.948);
+    tl.fromTo("#cap41-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 77.068);
+    tl.to("#cap41-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 77.555);
+    tl.fromTo("#cap42-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 79.752);
+    tl.to("#cap42-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 80.721);
+    tl.fromTo("#cap43-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 81.668);
+    tl.to("#cap43-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 82.884);
+    tl.fromTo("#cap44-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 83.817);
+    tl.to("#cap44-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 85.462);
+    tl.fromTo("#cap45-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 86.329);
+    tl.to("#cap45-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 87.089);
+    tl.fromTo("#cap46-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 88.075);
+    tl.to("#cap46-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 89.361);
+    tl.fromTo("#cap47-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 89.481);
+    tl.to("#cap47-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 89.967);
+    tl.fromTo("#cap48-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 90.913);
+    tl.to("#cap48-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 92.194);
+    tl.fromTo("#cap49-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 92.371);
+    tl.to("#cap49-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 93.457);
+    tl.fromTo("#cap50-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 95.712);
+    tl.to("#cap50-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 96.524);
+    tl.fromTo("#cap51-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 96.78);
+    tl.to("#cap51-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 98.118);
+    tl.fromTo("#cap52-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 98.238);
+    tl.to("#cap52-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 99.923);
+    tl.fromTo("#cap53-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 100.074);
+    tl.to("#cap53-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 101.595);
+    tl.fromTo("#cap54-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 101.715);
+    tl.to("#cap54-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 102.306);
+    tl.fromTo("#cap55-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 104.496);
+    tl.to("#cap55-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 106.532);
+    tl.fromTo("#cap56-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 106.775);
+    tl.to("#cap56-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 107.756);
+    tl.fromTo("#cap57-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 107.96);
+    tl.to("#cap57-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 109.376);
+    tl.fromTo("#cap58-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 109.496);
+    tl.to("#cap58-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 110.087);
+    tl.fromTo("#cap59-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 112.272);
+    tl.to("#cap59-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 113.735);
+    tl.fromTo("#cap60-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 114.669);
+    tl.to("#cap60-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 115.56);
+    tl.fromTo("#cap61-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 116.519);
+    tl.to("#cap61-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 117.461);
+    tl.fromTo("#cap62-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 118.407);
+    tl.to("#cap62-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 119.589);
+    tl.fromTo("#cap63-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 119.709);
+    tl.to("#cap63-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 121.42);
+    tl.fromTo("#cap64-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 122.339);
+    tl.to("#cap64-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 122.774);
+    tl.fromTo("#cap65-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 125.04);
+    tl.to("#cap65-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 126.509);
+    tl.fromTo("#cap66-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 126.629);
+    tl.to("#cap66-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 127.571);
+    tl.fromTo("#cap67-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 127.814);
+    tl.to("#cap67-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 129.212);
+    tl.fromTo("#cap68-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 129.389);
+    tl.to("#cap68-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 130.891);
+    tl.fromTo("#cap69-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 131.095);
+    tl.to("#cap69-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 132.342);
+    tl.fromTo("#cap70-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 132.462);
+    tl.to("#cap70-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 133.183);
+    tl.fromTo("#cap71-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 135.432);
+    tl.to("#cap71-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 136.023);
+    tl.fromTo("#cap72-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 136.892);
+    tl.to("#cap72-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 137.562);
+    tl.fromTo("#cap73-t", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }, 138.546);
+    tl.to("#cap73-t", { opacity: 0, duration: 0.1, ease: "power2.in" }, 139.228);
+    window.__timelines["captions"] = tl;
+  </script>
+</template>

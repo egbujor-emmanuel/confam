@@ -1,0 +1,25 @@
+<template>
+  <style>
+#root { position: absolute; inset: 0; color: #fbf8f1; font-family: 'Inter', sans-serif; }
+.eyebrow { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; color: #c6f432; }
+.display { font-family: 'Outfit', sans-serif; font-weight: 900; letter-spacing: -0.02em; line-height: 0.98; }
+.sub { font-size: 34px; line-height: 1.35; color: rgba(251, 248, 241, 0.82); }
+.src { font-family: 'JetBrains Mono', monospace; font-size: 20px; color: rgba(251, 248, 241, 0.55); }
+</style>
+  <div id="root" data-composition-id="s07" data-width="1920" data-height="1080">
+    <div id="s07-panel" class="clip" data-start="0" data-duration="7.752" style="position:absolute; left:150px; top:0; width:920px; height:1080px; display:flex; flex-direction:column; justify-content:center; gap:28px;">
+      <div id="s07-eyebrow" class="eyebrow">Provider confirms</div>
+      <div id="s07-headline" class="display" style="font-size:112px;">Delivered first.<br>Paid second.</div>
+      <div id="s07-sub" class="sub" style="max-width:820px;">Only then does the payment complete.</div>
+    </div>
+  </div>
+  <script>
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo("#s07-eyebrow", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.100);
+    tl.fromTo("#s07-headline", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.220);
+    tl.fromTo("#s07-sub", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.500);
+    tl.to("#s07-panel", { opacity: 0, duration: 0.3, ease: "power2.in" }, 7.432);
+
+    window.__timelines["s07"] = tl;
+  </script>
+</template>

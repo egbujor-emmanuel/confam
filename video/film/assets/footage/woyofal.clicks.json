@@ -1,0 +1,69 @@
+[
+  {
+    "atMs": 9502,
+    "label": "pays Sénégal",
+    "kind": "click"
+  },
+  {
+    "atMs": 12513,
+    "label": "tuile électricité",
+    "kind": "click"
+  },
+  {
+    "atMs": 15345,
+    "label": "numéro de compteur",
+    "kind": "click"
+  },
+  {
+    "atMs": 15747,
+    "label": "numéro de compteur (typing)",
+    "kind": "typing",
+    "chars": 11
+  },
+  {
+    "atMs": 22920,
+    "label": "meter checked",
+    "kind": "mark"
+  },
+  {
+    "atMs": 25037,
+    "label": "téléphone",
+    "kind": "click"
+  },
+  {
+    "atMs": 25476,
+    "label": "téléphone (typing)",
+    "kind": "typing",
+    "chars": 9
+  },
+  {
+    "atMs": 27958,
+    "label": "montant 2000",
+    "kind": "click"
+  },
+  {
+    "atMs": 30892,
+    "label": "continuer",
+    "kind": "click"
+  },
+  {
+    "atMs": 38363,
+    "label": "pay with wallet",
+    "kind": "click"
+  },
+  {
+    "atMs": 39032,
+    "label": "payment sent",
+    "kind": "mark"
+  },
+  {
+    "atMs": 46953,
+    "label": "final state",
+    "kind": "mark"
+  },
+  {
+    "atMs": 48531,
+    "label": "result card shown",
+    "kind": "mark"
+  }
+]
