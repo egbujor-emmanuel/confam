@@ -16,9 +16,10 @@ FRAME = 1 / FPS
 LEAD, TAIL = 0.5, 0.7
 W, H = 1920, 1080
 # Phone screen: the 430x932 capture scaled to fit the right half with room for captions below.
-SCALE = 0.865
-SCR_W, SCR_H = round(430 * SCALE), round(932 * SCALE)
-SCR_X, SCR_Y = 1380 - SCR_W // 2, 48
+SRC_W, SRC_H = 644, 1398  # footage recorded at 1.5x the 430x932 phone layout
+SCR_H = 980
+SCR_W = round(SCR_H * SRC_W / SRC_H)
+SCR_X, SCR_Y = 1440 - SCR_W // 2, 50
 BEZEL = 14
 SFX_PEAK = {"click-a": 0.073, "click-b": 0.067, "click-c": 0.078, "key": 0.054, "pop": 0.12, "stamp": 0.162, "riser": 1.986}
 STAMP_LANDS_AFTER = 0.95  # the app's stamp tween: 0.5 s delay + 0.45 s
@@ -50,24 +51,31 @@ BEATS = [
     {"id": "s01", "kind": "card", "card": "problem"},
     {"id": "s02", "kind": "card", "card": "numbers"},
     {"id": "s03", "kind": "footage", "eyebrow": "Confam", "headline": "E no land?<br>You no pay.", "sub": "Airtime, data and electricity, paid with Bitcoin.",
-     "segments": [("wallet", 4.6, 8.0, 0, None)]},
+     "segments": [("wallet", mark("wallet", "country Nigeria") - 3.6, mark("wallet", "country Nigeria") - 0.3, 0, None)]},
     {"id": "s04", "kind": "footage", "eyebrow": "Step 1", "headline": "Connect a wallet", "sub": "A free test wallet: 25,000 test sats.",
-     "segments": [("wallet", 8.0, 21.0, 0, None)]},
+     "segments": [("wallet", mark("wallet", "country Nigeria") - 0.3, mark("wallet", "balance shown") + 1.6, 0, None)],
+     "zoom": (0.84, 0.035, 1.9, "m:get test wallet+0.9", "end-0.55")},
     {"id": "s05", "kind": "footage", "eyebrow": "Step 2", "headline": "Number, network,<br>amount", "sub": "The exact price in sats, before you pay.",
-     "segments": [("airtime", mark("airtime", "airtime tile") - 0.8, mark("airtime", "pay with wallet") - 0.4, 0, None)]},
+     "segments": [("airtime", mark("airtime", "airtime tile") - 0.8, mark("airtime", "pay with wallet") - 0.4, 0, None)],
+     "zoom": (0.5, 0.9, 1.55, "m:amount 200+0.5", "end-0.55")},
     {"id": "s06", "kind": "footage", "eyebrow": "Lightning hold invoice", "headline": "Locked,<br>not sent.", "sub": "Confam cannot take your sats yet.",
-     "segments": [("airtime", mark("airtime", "pay with wallet") - 0.4, mark("airtime", "final state"), 0, None)]},
+     "segments": [("airtime", mark("airtime", "pay with wallet") - 0.4, mark("airtime", "final state"), 0, None)],
+     "zoom": (0.5, 0.62, 1.45, 1.4, "end-0.55")},
     {"id": "s07", "kind": "footage", "eyebrow": "Provider confirms", "headline": "Delivered first.<br>Paid second.", "sub": "Only then does the payment complete.",
-     "segments": [("airtime", mark("airtime", "final state"), mark("airtime", "result card shown") + 4.2, 0, None)], "stamp": ("airtime", "pop")},
+     "segments": [("airtime", mark("airtime", "final state"), mark("airtime", "result card shown") + 4.2, 0, None)], "stamp": ("airtime", "pop"),
+     "zoom": (0.5, 0.5, 1.45, "m:result card shown+0.5", "end-0.55")},
     {"id": "s08", "kind": "footage", "eyebrow": "Proof", "headline": "A signed<br>receipt", "sub": "Signed with Nostr, checked in your browser.",
-     "segments": [("airtime", mark("airtime", "result card shown") + 7.6, mark("airtime", "result card shown") + 13.0, 0, None)]},
+     "segments": [("airtime", mark("airtime", "result card shown") + 7.6, mark("airtime", "result card shown") + 13.0, 0, None)],
+     "zoom": (0.5, 0.66, 1.6, 0.5, "end-0.55")},
     {"id": "s09", "kind": "footage", "eyebrow": "The bad day", "headline": "Failed?<br>Not charged.", "sub": "The lock opens. Your sats never left.",
      "segments": [("fail", mark("fail", "continue to pay") - 0.3, mark("fail", "final state") + STAMP_LANDS_AFTER, 0, "w:Not"),
                   ("fail", mark("fail", "final state") + STAMP_LANDS_AFTER, mark("fail", "result card shown") + 4.4, "w:Not", None)],
-     "payoff": "w:Not"},
+     "payoff": "w:Not",
+     "zoom": (0.5, 0.45, 1.5, "w:Not-0.9", "end-0.55")},
     {"id": "s10", "kind": "footage", "eyebrow": "Dakar · Français", "headline": "Woyofal<br>electricity", "sub": "Same guarantee, in CFA, token on screen.",
      "segments": [("woyofal", mark("woyofal", "numéro de compteur") - 0.4, mark("woyofal", "meter checked") + 0.6, 0, 3.4),
-                  ("woyofal", mark("woyofal", "final state"), mark("woyofal", "result card shown") + 4.4, 3.4, None)], "stamp": ("woyofal", "pop")},
+                  ("woyofal", mark("woyofal", "final state"), mark("woyofal", "result card shown") + 4.4, 3.4, None)], "stamp": ("woyofal", "pop"),
+     "zoom": (0.5, 0.6, 1.45, 4.0, "end-0.5")},
     {"id": "s11", "kind": "card", "card": "coverage"},
     {"id": "s12", "kind": "card", "card": "stats"},
     {"id": "s13", "kind": "card", "card": "next"},
@@ -83,11 +91,27 @@ for b in BEATS:
 TOTAL = round(t, 3)
 
 
+def _split_offset(v: str) -> tuple[str, float]:
+    m = re.match(r"^(.*?)([+-]\d+(?:\.\d+)?)?$", v)
+    return m.group(1), float(m.group(2) or 0)
+
+
 def resolve(b: dict, v) -> float:
     if v is None:
         return b["dur"]
+    if isinstance(v, str) and v.startswith("end"):
+        return b["dur"] + float(v[3:] or 0)
     if isinstance(v, str) and v.startswith("w:"):
-        return word_time(b["id"], v[2:])
+        word, off = _split_offset(v[2:])
+        return word_time(b["id"], word) + off
+    if isinstance(v, str) and v.startswith("m:"):
+        label, off = _split_offset(v[2:])
+        for clip, m0, m1, f0, f1 in b["segments"]:
+            t = mark(clip, label)
+            if m0 <= t <= m1:
+                bf0, bf1 = resolve(b, f0), resolve(b, f1)
+                return bf0 + (t - m0) * (bf1 - bf0) / (m1 - m0) + off
+        raise ValueError(f"{b['id']}: tap {label!r} is outside this beat's footage")
     return float(v)
 
 
@@ -160,7 +184,7 @@ def caption_groups() -> list[dict]:
             pause = nxt is not None and nxt[1] - e >= 0.15 and len(cur) >= 3
             if nxt is None or end_sentence or pause or len(cur) >= 5:
                 base = b["start"] + LEAD
-                groups.append({"text": " ".join(x[0] for x in cur), "start": round(base + cur[0][1] - 0.05, 3), "end": round(base + cur[-1][2] + 0.12, 3)})
+                groups.append({"text": " ".join(x[0] for x in cur), "start": round(base + cur[0][1] - 0.05, 3), "end": round(base + cur[-1][2] + 0.12, 3), "left": b["kind"] == "footage"})
                 cur = []
     for g, nxt in zip(groups, groups[1:]):  # one group at a time
         g["end"] = min(g["end"], nxt["start"] - 0.02)
@@ -287,10 +311,11 @@ def phone_scene(dur: float) -> str:
 def captions_scene(groups: list[dict]) -> str:
     items, js = [], []
     for i, g in enumerate(groups):
-        items.append(f'    <div id="cap{i}" class="clip cap" data-start="{g["start"]}" data-duration="{round(g["end"] - g["start"], 3)}"><span id="cap{i}-t">{html.escape(g["text"])}</span></div>')
+        side = " cap-left" if g.get("left") else ""
+        items.append(f'    <div id="cap{i}" class="clip cap{side}" data-start="{g["start"]}" data-duration="{round(g["end"] - g["start"], 3)}"><span id="cap{i}-t">{html.escape(g["text"])}</span></div>')
         js.append(f'    tl.fromTo("#cap{i}-t", {{ opacity: 0, y: 8 }}, {{ opacity: 1, y: 0, duration: 0.12, ease: "power2.out" }}, {g["start"]});')
         js.append(f'    tl.to("#cap{i}-t", {{ opacity: 0, duration: 0.1, ease: "power2.in" }}, {round(g["end"] - 0.1, 3)});')
-    style = ".cap { position: absolute; left: 0; right: 0; bottom: 104px; text-align: center; overflow: visible; } .cap span { display: inline-block; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 46px; color: #fbf8f1; padding: 8px 22px; border-radius: 14px; background: rgba(5, 20, 15, 0.55); }"
+    style = ".cap { position: absolute; left: 0; right: 0; bottom: 108px; text-align: center; overflow: visible; } .cap-left { left: 150px; right: auto; width: 930px; text-align: left; bottom: 150px; } .cap span { display: inline-block; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 54px; line-height: 1.2; color: #fbf8f1; padding: 8px 22px; border-radius: 14px; background: rgba(5, 20, 15, 0.6); }"
     return scene("captions", TOTAL, style, "\n".join(items), "\n".join(js))
 
 
@@ -301,16 +326,47 @@ hosts = []
 for z, b in enumerate(BEATS, start=10):
     (comp / f"{b['id']}.html").write_text(footage_scene(b) if b["kind"] == "footage" else card_scene(b), encoding="utf-8")
     hosts.append(f'      <div id="{b["id"]}" data-composition-id="{b["id"]}" data-composition-src="compositions/{b["id"]}.html" data-start="{b["start"]}" data-duration="{b["dur"]}" data-track-index="1" data-track-kind="graphics" data-width="{W}" data-height="{H}" style="z-index:{z};"></div>')
-foot = [b for b in BEATS if b["kind"] == "footage"]
-phone_start, phone_end = foot[0]["start"], foot[-1]["start"] + foot[-1]["dur"]
-(comp / "phone.html").write_text(phone_scene(round(phone_end - phone_start, 3)), encoding="utf-8")
 groups = caption_groups()
 (comp / "captions.html").write_text(captions_scene(groups), encoding="utf-8")
 
-video_tags = "\n".join(
-    f'      <video id="{v["id"]}" class="clip" src="assets/footage/{v["clip"]}.mp4" muted playsinline data-start="{v["start"]}" data-duration="{v["dur"]}" data-media-start="{v["media"]}" data-playback-rate="{v["rate"]}" data-track-index="3" style="position:absolute; left:{SCR_X}px; top:{SCR_Y}px; width:{SCR_W}px; height:{SCR_H}px; border-radius:44px; object-fit:cover; z-index:40;"></video>'
+foot = [b for b in BEATS if b["kind"] == "footage"]
+phone_start, phone_end = foot[0]["start"], foot[-1]["start"] + foot[-1]["dur"]
+# The phone: one rig (body + screen mask + every footage segment). A push-in scales the whole rig and
+# slides it so the focus sits mid-frame; it stays fully visible side to side (the screen is never cropped
+# horizontally) and only runs past the frame's top and bottom, like a camera moving closer.
+RIG_X, RIG_Y = SCR_X - BEZEL, SCR_Y - BEZEL
+RIG_W, RIG_H = SCR_W + 2 * BEZEL, SCR_H + 2 * BEZEL
+video_inner = "\n".join(
+    f'          <video id="{v["id"]}" class="clip" src="assets/footage/{v["clip"]}.mp4" muted playsinline data-start="{v["start"]}" data-duration="{v["dur"]}" data-media-start="{v["media"]}" data-playback-rate="{v["rate"]}" data-track-index="3" style="position:absolute; left:0; top:0; width:{SCR_W}px; height:{SCR_H}px; object-fit:cover;"></video>'
     for v in videos
 )
+video_tags = f"""      <div id="rig" data-layout-allow-overflow style="position:absolute; left:{RIG_X}px; top:{RIG_Y}px; width:{RIG_W}px; height:{RIG_H}px; z-index:40; opacity:0;">
+        <div id="phone-body" style="position:absolute; inset:0; border-radius:58px; background:#05140f; box-shadow: 0 0 0 2px rgba(198,244,50,0.25), 0 40px 90px -30px rgba(0,0,0,0.7);"></div>
+        <div id="screen-mask" style="position:absolute; left:{BEZEL}px; top:{BEZEL}px; width:{SCR_W}px; height:{SCR_H}px; border-radius:44px; overflow:hidden;">
+{video_inner}
+        </div>
+      </div>"""
+
+MAX_PUSH = 1.4  # wider would run into the headline column
+zoom_js = [
+    f'      tl.set("#rig", {{ transformOrigin: "50% 50%" }}, 0);',
+    f'      tl.fromTo("#rig", {{ opacity: 0, y: 60 }}, {{ opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }}, {phone_start:.3f});',
+    f'      tl.to("#rig", {{ opacity: 0, duration: 0.35, ease: "power2.in" }}, {phone_end - 0.35:.3f});',
+]
+for b in BEATS:
+    if "zoom" not in b:
+        continue
+    fx, fy, scale, t_in, t_out = b["zoom"]
+    scale = min(scale, MAX_PUSH)
+    a_in = b["start"] + resolve(b, t_in)
+    a_out = b["start"] + resolve(b, t_out)
+    assert a_out - a_in > 1.0, (b["id"], a_in, a_out)
+    focus_y = (RIG_Y + BEZEL + fy * SCR_H) - (RIG_Y + RIG_H / 2)  # focus offset from the rig centre, unscaled
+    reach = RIG_H * scale / 2 - (H / 2 - (RIG_Y + RIG_H / 2)) - H / 2  # how far the scaled rig can slide and still fill the frame
+    y = max(-abs(reach), min(abs(reach), -focus_y * scale + (H / 2 - (RIG_Y + RIG_H / 2))))
+    zoom_js.append(f'      tl.fromTo("#rig", {{ scale: 1, y: 0 }}, {{ scale: {scale}, y: {y:.1f}, duration: 0.8, ease: "power2.inOut" }}, {a_in:.3f});')
+    zoom_js.append(f'      tl.to("#rig", {{ scale: 1, y: 0, duration: 0.5, ease: "power2.inOut" }}, {a_out:.3f});')
+
 SFX_LEN = {n: duration(ROOT / f"assets/sfx/{n}.mp3") for n in SFX_PEAK}
 voice_tags = "\n".join(f'      <audio id="vo-{b["id"]}" src="assets/voice/{b["id"]}.mp3" data-start="{round(b["start"] + LEAD, 3)}" data-duration="{round(b["voice"], 3)}" data-track-index="5" data-volume="1"></audio>' for b in BEATS)
 # Sound effects alternate between two Studio lanes so overlapping ticks never share a lane.
@@ -336,7 +392,6 @@ index = f"""<!doctype html>
     <div id="root" data-composition-id="main" data-start="0" data-duration="{TOTAL}" data-width="{W}" data-height="{H}">
       <div id="bg"></div>
 {chr(10).join(hosts)}
-      <div id="phone" data-composition-id="phone" data-composition-src="compositions/phone.html" data-start="{phone_start}" data-duration="{round(phone_end - phone_start, 3)}" data-track-index="2" data-track-kind="graphics" data-width="{W}" data-height="{H}" style="z-index:30;"></div>
 {video_tags}
       <div id="captions" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="{TOTAL}" data-track-index="4" data-track-kind="captions" data-width="{W}" data-height="{H}" style="z-index:60;"></div>
 {voice_tags}
@@ -344,7 +399,9 @@ index = f"""<!doctype html>
 {sfx_tags}
     </div>
     <script>
-      window.__timelines["main"] = gsap.timeline({{ paused: true }});
+      const tl = gsap.timeline({{ paused: true }});
+{chr(10).join(zoom_js)}
+      window.__timelines["main"] = tl;
     </script>
   </body>
 </html>

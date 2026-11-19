@@ -1,21 +1,21 @@
 [
   {
-    "atMs": 8220,
+    "atMs": 7341,
     "label": "country Nigeria",
     "kind": "click"
   },
   {
-    "atMs": 10825,
+    "atMs": 10153,
     "label": "connect wallet",
     "kind": "click"
   },
   {
-    "atMs": 13609,
+    "atMs": 12952,
     "label": "get test wallet",
     "kind": "click"
   },
   {
-    "atMs": 19241,
+    "atMs": 19644,
     "label": "balance shown",
     "kind": "mark"
   }

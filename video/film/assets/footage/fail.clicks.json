@@ -1,47 +1,47 @@
 [
   {
-    "atMs": 6727,
+    "atMs": 5637,
     "label": "airtime tile",
     "kind": "click"
   },
   {
-    "atMs": 9541,
+    "atMs": 8285,
     "label": "phone number",
     "kind": "click"
   },
   {
-    "atMs": 9957,
+    "atMs": 8662,
     "label": "phone number (typing)",
     "kind": "typing",
     "chars": 11
   },
   {
-    "atMs": 12640,
+    "atMs": 11273,
     "label": "amount 200",
     "kind": "click"
   },
   {
-    "atMs": 15640,
+    "atMs": 14117,
     "label": "continue to pay",
     "kind": "click"
   },
   {
-    "atMs": 20177,
+    "atMs": 18424,
     "label": "pay with wallet",
     "kind": "click"
   },
   {
-    "atMs": 20869,
+    "atMs": 19298,
     "label": "payment sent",
     "kind": "mark"
   },
   {
-    "atMs": 30525,
+    "atMs": 30509,
     "label": "final state",
     "kind": "mark"
   },
   {
-    "atMs": 31380,
+    "atMs": 31880,
     "label": "result card shown",
     "kind": "mark"
   }

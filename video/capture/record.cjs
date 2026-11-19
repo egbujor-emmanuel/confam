@@ -11,7 +11,17 @@ const path = require("path");
 const BASE = process.env.CONFAM_URL || "https://confam-qxdh.onrender.com";
 const OUT = path.join(__dirname, "clips");
 const STATE = path.join(OUT, "wallet-state.json"); // the test wallet created in the first segment
-const VIEW = { width: 430, height: 932 };
+const VIEW = { width: 430, height: 932 }; // the phone layout the app is designed for
+// Recorded at ZOOM x the pixels (sharp when shown large in the film): the window is ZOOM times bigger
+// and <body> is zoomed, so the app still lays out at 430 CSS px. The cursor overlay lives on <html>,
+// outside the zoom, so its coordinates are plain window pixels.
+const ZOOM = Number(process.env.ZOOM || 1.5);
+const REC = { width: Math.round(VIEW.width * ZOOM), height: Math.round(VIEW.height * ZOOM) };
+const zoomBody = (z) => {
+  const apply = () => document.body && (document.body.style.zoom = String(z));
+  apply();
+  new MutationObserver(apply).observe(document, { childList: true, subtree: true });
+};
 const REHEARSE = process.argv.includes("--rehearse");
 
 async function injectOverlay(page) {
@@ -20,16 +30,16 @@ async function injectOverlay(page) {
     const cursor = document.createElement("div");
     cursor.id = "demo-cursor";
     cursor.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24"><path d="M5 3L19 12L12 13L9 20L5 3Z" fill="white" stroke="black" stroke-width="1.5" stroke-linejoin="round"/></svg>';
-    cursor.style.cssText = "position:fixed;z-index:999999;pointer-events:none;left:215px;top:700px;transition:left .12s,top .12s;filter:drop-shadow(1px 2px 2px rgba(0,0,0,.35))";
-    document.body.appendChild(cursor);
+    cursor.style.cssText = "position:fixed;z-index:999999;pointer-events:none;left:320px;top:1050px;transition:left .12s,top .12s;transform:scale(1.5);transform-origin:0 0;filter:drop-shadow(1px 2px 2px rgba(0,0,0,.35))";
+    document.documentElement.appendChild(cursor);
     document.addEventListener("mousemove", (e) => {
       cursor.style.left = `${e.clientX}px`;
       cursor.style.top = `${e.clientY}px`;
     });
     window.__ring = (x, y) => {
       const r = document.createElement("div");
-      r.style.cssText = `position:fixed;z-index:999998;pointer-events:none;left:${x - 22}px;top:${y - 22}px;width:44px;height:44px;border-radius:50%;border:3px solid #c6f432;box-shadow:0 0 0 2px rgba(0,0,0,.25);transform:scale(.4);opacity:1;transition:transform .45s ease-out,opacity .45s ease-out`;
-      document.body.appendChild(r);
+      r.style.cssText = `position:fixed;z-index:999998;pointer-events:none;left:${x - 33}px;top:${y - 33}px;width:66px;height:66px;border-radius:50%;border:4px solid #c6f432;box-shadow:0 0 0 2px rgba(0,0,0,.25);transform:scale(.4);opacity:1;transition:transform .45s ease-out,opacity .45s ease-out`;
+      document.documentElement.appendChild(r);
       requestAnimationFrame(() => {
         r.style.transform = "scale(1.4)";
         r.style.opacity = "0";
@@ -200,13 +210,14 @@ async function record(browser, name) {
   const dir = path.join(OUT, `.raw-${name}`);
   fs.mkdirSync(dir, { recursive: true });
   const ctx = await browser.newContext({
-    viewport: VIEW,
+    viewport: REC,
     isMobile: true,
     hasTouch: true,
-    deviceScaleFactor: 2,
-    recordVideo: { dir, size: { width: VIEW.width * 2, height: VIEW.height * 2 } },
+    deviceScaleFactor: 1,
+    recordVideo: { dir, size: REC },
     ...(name !== "wallet" && fs.existsSync(STATE) ? { storageState: STATE } : {}),
   });
+  await ctx.addInitScript(zoomBody, ZOOM);
   const page = await ctx.newPage();
   const s = makeSession(page, name);
   let error = null;
@@ -228,7 +239,7 @@ async function record(browser, name) {
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
   // Headed, so WebGL (the 3D lock) uses the GPU: headless renders it on the CPU and starves input.
-  const browser = await chromium.launch({ headless: process.env.HEADLESS === "1", args: ["--window-size=470,1010", "--window-position=40,10"] });
+  const browser = await chromium.launch({ headless: process.env.HEADLESS === "1", args: [`--window-size=${REC.width + 40},${REC.height + 80}`, "--window-position=20,0"] });
   try {
     if (REHEARSE) return await rehearse(browser);
     const names = process.argv.slice(2).filter((a) => !a.startsWith("--"));
