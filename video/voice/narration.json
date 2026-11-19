@@ -1,0 +1,16 @@
+[
+  {"id": "s01", "text": "You buy airtime. Your account is debited. The airtime never lands. Then you spend two weeks chasing a refund."},
+  {"id": "s02", "text": "Every day, millions of us top up phones and prepaid meters. When the money moves first and the product comes later, all the risk is on us."},
+  {"id": "s03", "text": "This is Con-fam. E no land? You no pay. You pay for airtime, data and electricity with Bitcoin, and your payment only completes after the provider confirms delivery."},
+  {"id": "s04", "text": "Connect a wallet. For this demo, a free test wallet with twenty five thousand test sats."},
+  {"id": "s05", "text": "Pick airtime. Enter the number, the network and the amount. Con-fam shows the exact price in sats."},
+  {"id": "s06", "text": "Now watch. My sats are locked, not sent. A hold invoice keeps them in the Lightning network, and Con-fam cannot take them yet."},
+  {"id": "s07", "text": "Con-fam buys the airtime. Only when the provider confirms delivery does the payment complete."},
+  {"id": "s08", "text": "And I get a receipt signed with Nostr, checked right here in my browser."},
+  {"id": "s09", "text": "Now the bad day. This purchase fails. The lock opens by itself. Not charged. My sats never left my wallet. No refund to chase, no support ticket."},
+  {"id": "s10", "text": "And in Dakar, the same guarantee for Woyofal electricity, in French, in C F A, with the token on screen."},
+  {"id": "s11", "text": "Airtime in nineteen African countries, data in thirteen, and electricity in Nigeria and Senegal."},
+  {"id": "s12", "text": "We measure it in public. Delivery rate. Time to delivery. And the number that matters most, charged without delivery. Zero."},
+  {"id": "s13", "text": "Next, real money on our own Lightning node, TV and water bills, automatic meter top ups, and agents who accept sats on the street."},
+  {"id": "s14", "text": "Con-fam. E no land? You no pay."}
+]

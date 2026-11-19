@@ -13,3 +13,9 @@ test-results/
 playwright-report/
 .DS_Store
 *.log
+
+# Demo video working files: raw clips, generated audio, and the capture wallet (holds an NWC secret)
+video/capture/clips/
+video/voice/samples/
+video/voice/out/
+video/renders/
