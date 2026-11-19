@@ -98,7 +98,11 @@ async function payAndWait(page, s, endText) {
   s.mark("payment sent");
   await page.waitForFunction((t) => document.querySelector("#order-headline")?.textContent?.match(new RegExp(t)), endText, { timeout: 150000 });
   s.mark("final state");
-  await page.waitForTimeout(3500); // let the stamp land and the balance update
+  // Back up to the card: headline, stamp and wallet balance are the shot that matters.
+  await page.locator("#order-headline").evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "start" }));
+  await page.waitForTimeout(800);
+  s.mark("result card shown");
+  await page.waitForTimeout(4500); // let the stamp land and the balance come back
 }
 
 const SEGMENTS = {
@@ -223,7 +227,8 @@ async function record(browser, name) {
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
-  const browser = await chromium.launch();
+  // Headed, so WebGL (the 3D lock) uses the GPU: headless renders it on the CPU and starves input.
+  const browser = await chromium.launch({ headless: process.env.HEADLESS === "1", args: ["--window-size=470,1010", "--window-position=40,10"] });
   try {
     if (REHEARSE) return await rehearse(browser);
     const names = process.argv.slice(2).filter((a) => !a.startsWith("--"));

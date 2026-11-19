@@ -96,10 +96,6 @@ Woyofal meter running.
   wallet, a mainnet Lightning node that issues hold invoices over Nostr Wallet Connect (Alby Hub
   implements `make_hold_invoice`, `settle_hold_invoice` and `cancel_hold_invoice`), and DEXPAY
   production approval for Senegal electricity.
-- **Designed for 3G and mid-range phones:** about 90 KB of JavaScript on first load (gzipped); the 3D
-  lock loads after the page and falls back to a still image on 2G, data-saver or low-memory phones.
-- **Every payment waits for the provider:** a purchase settles only on the provider's confirmation and
-  is released if none arrives within 90 seconds.
 
 ---
 
