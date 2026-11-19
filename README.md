@@ -4,6 +4,7 @@
 *E no land? You no pay. · Pas livré ? Pas payé.*
 
 Live app: **https://confam-qxdh.onrender.com** · English / Français · works on a mid-range phone
+Demo video (2:21): **https://github.com/egbujor-emmanuel/confam/releases/download/demo-video-v1/confam-demo-final.mp4**
 
 Confam pays your bill over Lightning with a **hold invoice**: your sats are *locked*, not sent. Confam
 buys the airtime, data or electricity token from the provider, and only when the provider confirms
